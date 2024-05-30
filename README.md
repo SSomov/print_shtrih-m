@@ -6,4 +6,4 @@
 
 Uvicorn, FastAPI
 
-uvicorn srv:app --host 0.0.0.0
+```uvicorn srv:app --host 0.0.0.0```
