@@ -8,6 +8,10 @@ import win32com.client
 import argparse
 import json
 
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
 
 class Item(BaseModel):
     description: str = None
@@ -118,7 +122,7 @@ async def create_invoice(order: Order):
     fr.UseReceiptRibbon = True
     fr.StringQuantity = 1
     fr.FeedDocument()
-    fr.StringForPrinting = add_spaces_to_45_chars(f"Пиццерия на Московской")
+    fr.StringForPrinting = add_spaces_to_45_chars(os.getenv('ORG_TITLE', 'Кафе'))
     fr.PrintString()
     fr.StringQuantity = 1
     fr.FeedDocument()
@@ -184,6 +188,8 @@ async def process_cash_payment(order: Order):
     # send_user_details(fr, order.num)
     for item in order.products:
         quantity = float(item.kolvo)
+        price = float(item.price)*(1-discount)
+        print(quantity,price)
         measure_unit = 0
         PaymentItemSign = 1
         print(item)
@@ -197,7 +203,7 @@ async def process_cash_payment(order: Order):
             PaymentItemSign = 31
         fr.MeasureUnit = measure_unit
         fr.StringForPrinting = item.name
-        fr.Price = float(item.price)*(1-discount)
+        fr.Price = price
         fr.Quantity = quantity
         fr.Summ1Enabled = False
         fr.PaymentTypeSign = 4
@@ -237,6 +243,8 @@ async def process_cash_payment(order: Order):
         fr.FeedDocument()
         fr.StringForPrinting = f"Скидка .. {order.alldiscount}%"
         fr.StringForPrinting = f"Сумма чека без скидки .. {summ_no_discount}"
+    print(summ)
+    print(fr.CheckSubTotal())
     fr.Summ1 = summ
     send_tag_1021_1203(fr, order.employee_pos + " " + order.employee_fio, order.employee_inn)
     fr.FNCloseCheckEx()
