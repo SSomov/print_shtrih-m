@@ -84,29 +84,20 @@ def send_user_details(fr, numdoc) -> None:
     :param fr: объект драйвера
     :param numdoc: номер документа
     :return:
-    """    
-    fr.TagNumber = 1260;
-    """ вложенные тэги {
     """
-    fr.FNBeginSTLVTag();
-    fr.TagNumber = 1262
-    fr.TagType = 7
-    fr.TagValueStr = "030"
-    fr.FNSendTag()
-    fr.TagNumber = 1263
-    fr.TagType = 7
-    fr.TagValueStr = datetime.now().strftime("%d.%m.%Y")
-    fr.FNSendTag()
-    fr.TagNumber = 1264
-    fr.TagType = 7
-    fr.TagValueStr = numdoc
-    fr.FNSendTag()
-    fr.TagNumber = 1265
-    fr.TagType = 7
-    fr.TagValueStr = "mode=horeca"
-    fr.FNSendTag()
-    fr.FNSendSTLVTag();
-    """ }         
+    tags = [
+        (1262, "030"),
+        (1263, datetime.now().strftime("%d.%m.%Y")),
+        (1264, numdoc),
+        (1265, "mode=horeca")
+    ]
+    for tag_number, tag_value in tags:
+        fr.TagNumber = tag_number
+        fr.TagType = 7
+        fr.TagValueStr = tag_value
+        fr.FNSendTagOperation()
+    print(fr.ResultCode, fr.ResultCodeDescription)
+    """
         Значение реквизита «отраслевой реквизит предмета расчета» 1260
         Значение реквизита «идентификатор ФОИВ» (тег 1262): 030
         Значение реквизита «дата документа основания» (тег 1263): 26.03.2022
@@ -142,7 +133,6 @@ async def create_invoice(order: Order):
     fr.FeedDocument()
     fr.StringForPrinting = add_spaces_to_45_chars(f"Блюда")
     fr.PrintString()
-    summ = 0
     summ_no_discount = 0
     discount = 0
     if order.alldiscount != '0':
@@ -151,7 +141,6 @@ async def create_invoice(order: Order):
         print(item)
         fr.StringForPrinting = f"{item.name.upper()}...{item.kolvo}x{item.price}  {float(item.kolvo)*float(item.price)}"
         summ_no_discount = summ_no_discount + float(item.kolvo)*float(item.price)
-        summ = summ + float(item.kolvo)*float(item.price)*(1-discount)
         fr.PrintString();
     if order.alldiscount != '0':
         fr.StringQuantity = 2
@@ -176,16 +165,16 @@ async def create_invoice(order: Order):
 @app.post("/api/v1/payment/cash")
 async def process_cash_payment(order: Order):
     print(order)
-    summ = 0
     summ_no_discount = 0
     discount = 0
     if order.alldiscount != '0':
         discount = float(order.alldiscount) / 100    
     fr = win32com.client.Dispatch('Addin.DRvFR')
     fr.Connect()
+    fr.Summ1Enabled = False
+    fr.TaxValueEnabled = False
     # fr.CheckType = 0;
     # fr.OpenCheck();
-    # send_user_details(fr, order.num)
     for item in order.products:
         quantity = float(item.kolvo)
         price = float(item.price)*(1-discount)
@@ -195,7 +184,7 @@ async def process_cash_payment(order: Order):
         print(item)
         if item.draught == '1':
             print("разливное")
-            quantity = 0.5
+            # quantity = 0.5
             fr.DivisionalQuantity = False
             fr.Numerator = "1";
             fr.Denominator = "1";
@@ -205,30 +194,13 @@ async def process_cash_payment(order: Order):
         fr.StringForPrinting = item.name
         fr.Price = price
         fr.Quantity = quantity
-        fr.Summ1Enabled = False
         fr.PaymentTypeSign = 4
         fr.PaymentItemSign =  PaymentItemSign
         fr.FNOperation()
         print(fr.ResultCode, fr.ResultCodeDescription)
 
         if item.draught == '1':
-            fr.TagNumber = 1262
-            fr.TagType = 7
-            fr.TagValueStr = "030"
-            fr.FNSendTagOperation()
-            fr.TagNumber = 1263
-            fr.TagType = 7
-            fr.TagValueStr = datetime.now().strftime("%d.%m.%Y")
-            fr.FNSendTagOperation()
-            fr.TagNumber = 1264
-            fr.TagType = 7
-            fr.TagValueStr = order.num.strip()
-            fr.FNSendTagOperation()
-            fr.TagNumber = 1265
-            fr.TagType = 7
-            fr.TagValueStr = "mode=horeca"
-            fr.FNSendTagOperation()
-            print(fr.ResultCode, fr.ResultCodeDescription)
+            send_user_details(fr, order.num.strip())
 
             fr.MCOSUSign = True
             fr.Barcode = item.GTIN
@@ -237,15 +209,13 @@ async def process_cash_payment(order: Order):
             print(fr.ResultCode, fr.ResultCodeDescription)
 
         summ_no_discount = summ_no_discount + float(item.kolvo)*float(item.price)
-        summ = summ + float(item.kolvo)*float(item.price)*(1-discount)
     if order.alldiscount != '0':
         fr.StringQuantity = 1
         fr.FeedDocument()
         fr.StringForPrinting = f"Скидка .. {order.alldiscount}%"
         fr.StringForPrinting = f"Сумма чека без скидки .. {summ_no_discount}"
-    print(summ)
     print(fr.CheckSubTotal())
-    fr.Summ1 = summ
+    fr.Summ1 = sum(float(item.kolvo) * float(item.price) * (1 - discount) for item in order.products)
     send_tag_1021_1203(fr, order.employee_pos + " " + order.employee_fio, order.employee_inn)
     fr.FNCloseCheckEx()
     print(fr.ResultCode, fr.ResultCodeDescription)
@@ -274,7 +244,7 @@ async def process_card_payment(order: Order):
         print(item)
         if item.draught == '1':
             print("разливное")
-            quantity = 0.5
+            # quantity = 0.5
             fr.DivisionalQuantity = False
             fr.Numerator = "1";
             fr.Denominator = "1";
@@ -291,23 +261,7 @@ async def process_card_payment(order: Order):
         print(fr.ResultCode, fr.ResultCodeDescription)
 
         if item.draught == '1':
-            fr.TagNumber = 1262
-            fr.TagType = 7
-            fr.TagValueStr = "030"
-            fr.FNSendTagOperation()
-            fr.TagNumber = 1263
-            fr.TagType = 7
-            fr.TagValueStr = datetime.now().strftime("%d.%m.%Y")
-            fr.FNSendTagOperation()
-            fr.TagNumber = 1264
-            fr.TagType = 7
-            fr.TagValueStr = order.num.strip()
-            fr.FNSendTagOperation()
-            fr.TagNumber = 1265
-            fr.TagType = 7
-            fr.TagValueStr = "mode=horeca"
-            fr.FNSendTagOperation()
-            print(fr.ResultCode, fr.ResultCodeDescription)
+            send_user_details(fr, order.num.strip())
 
             fr.MCOSUSign = True
             fr.Barcode = item.GTIN
