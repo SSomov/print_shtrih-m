@@ -151,7 +151,7 @@ async def create_invoice(order: Order):
         fr.PrintString()
     fr.StringQuantity = 2
     fr.FeedDocument()
-    fr.StringForPrinting = f"ИТОГО К ОПЛАТЕ .. {summ}"
+    fr.StringForPrinting = f"ИТОГО К ОПЛАТЕ .. {sum(float(item.kolvo) * float(item.price) * (1 - discount) for item in order.products)}"
     fr.PrintWideString()    
 #    fr.StringQuantity = 2
 #    fr.FeedDocument()
@@ -270,13 +270,12 @@ async def process_card_payment(order: Order):
             print(fr.ResultCode, fr.ResultCodeDescription)
 
         summ_no_discount = summ_no_discount + float(item.kolvo)*float(item.price)
-        summ = summ + float(item.kolvo)*float(item.price)*(1-discount)
     if order.alldiscount != '0':
         fr.StringQuantity = 1
         fr.FeedDocument()
         fr.StringForPrinting = f"Скидка .. {order.alldiscount}%"
         fr.StringForPrinting = f"Сумма чека без скидки .. {summ_no_discount}"
-    fr.Summ2 = summ
+    fr.Summ2 = sum(float(item.kolvo) * float(item.price) * (1 - discount) for item in order.products)
     send_tag_1021_1203(fr, order.employee_pos + " " + order.employee_fio, order.employee_inn)
     print(fr.ResultCode, fr.ResultCodeDescription)
     print(fr.CheckItemLocalResult)
