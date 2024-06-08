@@ -105,6 +105,85 @@ def send_user_details(fr, numdoc) -> None:
         Значение реквизита «значение отраслевого реквизита» (тег 1265): mode=horeca
     """
 
+def order_pay(order, type_pay) -> None:
+    print(order)
+    max_discount = os.getenv('MAX_DISCOUNT', 'False') in ['True']
+    discount = 0
+    total_to_pay = 0
+    item_no_discount = False
+    if float(order.alldiscount) > 0 and float(order.alldiscount) <= 100:
+        discount = float(order.alldiscount) / 100    
+    fr = win32com.client.Dispatch('Addin.DRvFR')
+    fr.Connect()
+    fr.Summ1Enabled = False
+    fr.TaxValueEnabled = False
+    # fr.CheckType = 0;
+    # fr.OpenCheck();
+    for item in order.products:
+        quantity = float(item.kolvo)
+        item_discount = discount
+        if max_discount:
+            item_discount = min(discount, float(item.maxdiscont) / 100)
+            item_no_discount = True
+        price = float(item.price)*(1 - item_discount)
+        print(quantity,price)
+        measure_unit = 0
+        PaymentItemSign = 1
+        print(item)
+        if item.draught == '1':
+            print("разливное")
+            # quantity = 0.5
+            fr.DivisionalQuantity = False
+            fr.Numerator = "1";
+            fr.Denominator = "1";
+            measure_unit = 41
+            PaymentItemSign = 31
+        fr.MeasureUnit = measure_unit
+        fr.StringForPrinting = item.name
+        fr.Price = price
+        fr.Quantity = quantity
+        fr.PaymentTypeSign = 4
+        fr.PaymentItemSign =  PaymentItemSign
+        fr.FNOperation()
+        print(fr.ResultCode, fr.ResultCodeDescription)
+        total_to_pay += float(item.kolvo) * float(item.price) * (1 - item_discount)
+
+        if item.draught == '1':
+            send_user_details(fr, order.num.strip())
+
+            fr.MCOSUSign = True
+            fr.Barcode = item.GTIN
+            fr.FNSendItemBarcode()
+            print(fr.MarkingTypeEx, fr.MarkingType, fr.CheckItemLocalResult)
+            print(fr.ResultCode, fr.ResultCodeDescription)
+
+    if float(order.alldiscount) > 0 and float(order.alldiscount) <= 100:
+        summ_no_discount = sum(float(item.kolvo) * float(item.price) for item in order.products)
+        fr.StringQuantity = 1
+        fr.FeedDocument()
+        fr.StringForPrinting = f"Скидка .. {order.alldiscount}%"
+        fr.PrintString()
+        if item_no_discount:
+            fr.StringForPrinting = f"В чеке присутствуют товары скидка на которые не распространяется!"
+            fr.PrintString()
+        fr.StringForPrinting = f"Сумма чека без скидки .. {summ_no_discount}"
+        fr.PrintString()
+    print(fr.CheckSubTotal())
+    if type_pay == "cash":
+        fr.Summ1 = total_to_pay
+    if type_pay == "card":
+        fr.Summ2 = total_to_pay
+    send_tag_1021_1203(fr, order.employee_pos + " " + order.employee_fio, order.employee_inn)
+    fr.FNCloseCheckEx()
+    print(fr.ResultCode, fr.ResultCodeDescription)
+    #print(fr.CheckItemLocalResult)
+    #print(fr.CheckItemLocalError)
+    fr.StringQuantity = 2
+    fr.FeedDocument()
+    fr.CutType = 2
+    fr.CutCheck()
+    fr.Disconnect()
+
 @app.post("/api/v1/invoice")
 async def create_invoice(order: Order):
     print(order)
@@ -175,141 +254,12 @@ async def create_invoice(order: Order):
 
 @app.post("/api/v1/payment/cash")
 async def process_cash_payment(order: Order):
-    print(order)
-    max_discount = os.getenv('MAX_DISCOUNT', 'False') in ['True']
-    discount = 0
-    total_to_pay = 0
-    if float(order.alldiscount) > 0 and float(order.alldiscount) <= 100:
-        discount = float(order.alldiscount) / 100    
-    fr = win32com.client.Dispatch('Addin.DRvFR')
-    fr.Connect()
-    fr.Summ1Enabled = False
-    fr.TaxValueEnabled = False
-    # fr.CheckType = 0;
-    # fr.OpenCheck();
-    for item in order.products:
-        quantity = float(item.kolvo)
-        item_discount = discount
-        if max_discount:
-            item_discount = min(discount, float(item.maxdiscont) / 100)
-            item_no_discount = True
-        price = float(item.price)*(1 - item_discount)
-        print(quantity,price)
-        measure_unit = 0
-        PaymentItemSign = 1
-        print(item)
-        if item.draught == '1':
-            print("разливное")
-            # quantity = 0.5
-            fr.DivisionalQuantity = False
-            fr.Numerator = "1";
-            fr.Denominator = "1";
-            measure_unit = 41
-            PaymentItemSign = 31
-        fr.MeasureUnit = measure_unit
-        fr.StringForPrinting = item.name
-        fr.Price = price
-        fr.Quantity = quantity
-        fr.PaymentTypeSign = 4
-        fr.PaymentItemSign =  PaymentItemSign
-        fr.FNOperation()
-        print(fr.ResultCode, fr.ResultCodeDescription)
-        total_to_pay += float(item.kolvo) * float(item.price) * (1 - item_discount)
-
-        if item.draught == '1':
-            send_user_details(fr, order.num.strip())
-
-            fr.MCOSUSign = True
-            fr.Barcode = item.GTIN
-            fr.FNSendItemBarcode()
-            print(fr.MarkingTypeEx, fr.MarkingType, fr.CheckItemLocalResult)
-            print(fr.ResultCode, fr.ResultCodeDescription)
-
-    if float(order.alldiscount) > 0 and float(order.alldiscount) <= 100:
-        summ_no_discount = sum(float(item.kolvo) * float(item.price) for item in order.products)
-        fr.StringQuantity = 1
-        fr.FeedDocument()
-        fr.StringForPrinting = f"Скидка .. {order.alldiscount}%"
-        fr.StringForPrinting = f"Сумма чека без скидки .. {summ_no_discount}"
-    print(fr.CheckSubTotal())
-    fr.Summ1 = total_to_pay
-    send_tag_1021_1203(fr, order.employee_pos + " " + order.employee_fio, order.employee_inn)
-    fr.FNCloseCheckEx()
-    print(fr.ResultCode, fr.ResultCodeDescription)
-    #print(fr.CheckItemLocalResult)
-    #print(fr.CheckItemLocalError)
-    fr.StringQuantity = 2
-    fr.FeedDocument()
-    fr.CutType = 2
-    fr.CutCheck()
-    fr.Disconnect()
+    order_pay(order, "cash")
     return {"message": "Cash payment processed successfully"}
 
 @app.post("/api/v1/payment/card")
 async def process_card_payment(order: Order):
-    print(order)
-    max_discount = os.getenv('MAX_DISCOUNT', 'False') in ['True']
-    discount = 0
-    total_to_pay = 0
-    if float(order.alldiscount) > 0 and float(order.alldiscount) <= 100:
-        discount = float(order.alldiscount) / 100    
-    fr = win32com.client.Dispatch('Addin.DRvFR')
-    fr.Connect()
-    for item in order.products:
-        quantity = float(item.kolvo)
-        item_discount = discount
-        if max_discount:
-            item_discount = min(discount, float(item.maxdiscont) / 100)
-            item_no_discount = True
-        price = float(item.price)*(1 - item_discount)
-        measure_unit = 0
-        PaymentItemSign = 1
-        print(item)
-        if item.draught == '1':
-            print("разливное")
-            # quantity = 0.5
-            fr.DivisionalQuantity = False
-            fr.Numerator = "1";
-            fr.Denominator = "1";
-            measure_unit = 41
-            PaymentItemSign = 31
-        fr.MeasureUnit = measure_unit
-        fr.StringForPrinting = item.name
-        fr.Price = float(item.price)*(1-discount)
-        fr.Quantity = quantity
-        fr.Summ1Enabled = False
-        fr.PaymentTypeSign = 4
-        fr.PaymentItemSign =  PaymentItemSign
-        fr.FNOperation()
-        print(fr.ResultCode, fr.ResultCodeDescription)
-        total_to_pay += float(item.kolvo) * float(item.price) * (1 - item_discount)
-
-        if item.draught == '1':
-            send_user_details(fr, order.num.strip())
-
-            fr.MCOSUSign = True
-            fr.Barcode = item.GTIN
-            fr.FNSendItemBarcode()
-            print(fr.MarkingTypeEx, fr.MarkingType, fr.CheckItemLocalResult)
-            print(fr.ResultCode, fr.ResultCodeDescription)
-
-    if float(order.alldiscount) > 0 and float(order.alldiscount) <= 100:
-        summ_no_discount = sum(float(item.kolvo) * float(item.price) for item in order.products)
-        fr.StringQuantity = 1
-        fr.FeedDocument()
-        fr.StringForPrinting = f"Скидка .. {order.alldiscount}%"
-        fr.StringForPrinting = f"Сумма чека без скидки .. {summ_no_discount}"
-    fr.Summ2 = total_to_pay
-    send_tag_1021_1203(fr, order.employee_pos + " " + order.employee_fio, order.employee_inn)
-    print(fr.ResultCode, fr.ResultCodeDescription)
-    print(fr.CheckItemLocalResult)
-    print(fr.CheckItemLocalError)
-    fr.FNCloseCheckEx()
-    fr.StringQuantity = 5
-    fr.FeedDocument()
-    fr.CutType = 2
-    fr.CutCheck()
-    fr.Disconnect()
+    order_pay(order, "card")
     return {"message": "Card payment processed successfully"}
 
 @app.post("/api/v1/print/invoice")
