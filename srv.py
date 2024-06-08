@@ -108,6 +108,7 @@ def send_user_details(fr, numdoc) -> None:
 @app.post("/api/v1/invoice")
 async def create_invoice(order: Order):
     print(order)
+    max_discount = os.getenv('MAX_DISCOUNT', 'False') in ['True']
     fr = win32com.client.Dispatch('Addin.DRvFR')
     fr.Connect()
     fr.UseReceiptRibbon = True
@@ -133,25 +134,35 @@ async def create_invoice(order: Order):
     fr.FeedDocument()
     fr.StringForPrinting = add_spaces_to_45_chars(f"Блюда")
     fr.PrintString()
-    summ_no_discount = 0
     discount = 0
-    if order.alldiscount != '0':
-        discount = float(order.alldiscount) / 100    
+    total_to_pay = 0
+    item_no_discount = False
+    if float(order.alldiscount) > 0 and float(order.alldiscount) <= 100:
+        discount = float(order.alldiscount) / 100
     for item in order.products:
         print(item)
         fr.StringForPrinting = f"{item.name.upper()}...{item.kolvo}x{item.price}  {float(item.kolvo)*float(item.price)}"
-        summ_no_discount = summ_no_discount + float(item.kolvo)*float(item.price)
         fr.PrintString();
-    if order.alldiscount != '0':
+        item_discount = discount
+        if max_discount:
+            item_discount = min(discount, float(item.maxdiscont) / 100)
+            item_no_discount = True
+        total_to_pay += float(item.kolvo) * float(item.price) * (1 - item_discount)
+    # Проверка условия, что скидка больше 0 и меньше или равна 100
+    if float(order.alldiscount) > 0 and float(order.alldiscount) <= 100:
+        summ_no_discount = sum(float(item.kolvo) * float(item.price) for item in order.products)
         fr.StringQuantity = 2
         fr.FeedDocument()
         fr.StringForPrinting = f"Скидка .. {order.alldiscount}%"
         fr.PrintString()
+        if item_no_discount:
+            fr.StringForPrinting = f"В чеке присутствуют товары скидка на которые не распространяется!"
+            fr.PrintString()
         fr.StringForPrinting = f"Сумма чека без скидки .. {summ_no_discount}"
         fr.PrintString()
     fr.StringQuantity = 2
     fr.FeedDocument()
-    fr.StringForPrinting = f"ИТОГО К ОПЛАТЕ .. {sum(float(item.kolvo) * float(item.price) * (1 - discount) for item in order.products)}"
+    fr.StringForPrinting = f"ИТОГО К ОПЛАТЕ .. {total_to_pay}"
     fr.PrintWideString()    
 #    fr.StringQuantity = 2
 #    fr.FeedDocument()
@@ -165,9 +176,9 @@ async def create_invoice(order: Order):
 @app.post("/api/v1/payment/cash")
 async def process_cash_payment(order: Order):
     print(order)
-    summ_no_discount = 0
     discount = 0
-    if order.alldiscount != '0':
+    total_to_pay = 0
+    if float(order.alldiscount) > 0 and float(order.alldiscount) <= 100:
         discount = float(order.alldiscount) / 100    
     fr = win32com.client.Dispatch('Addin.DRvFR')
     fr.Connect()
@@ -177,7 +188,11 @@ async def process_cash_payment(order: Order):
     # fr.OpenCheck();
     for item in order.products:
         quantity = float(item.kolvo)
-        price = float(item.price)*(1-discount)
+        item_discount = discount
+        if max_discount:
+            item_discount = min(discount, float(item.maxdiscont) / 100)
+            item_no_discount = True
+        price = float(item.price)*(1 - item_discount)
         print(quantity,price)
         measure_unit = 0
         PaymentItemSign = 1
@@ -198,6 +213,7 @@ async def process_cash_payment(order: Order):
         fr.PaymentItemSign =  PaymentItemSign
         fr.FNOperation()
         print(fr.ResultCode, fr.ResultCodeDescription)
+        total_to_pay += float(item.kolvo) * float(item.price) * (1 - item_discount)
 
         if item.draught == '1':
             send_user_details(fr, order.num.strip())
@@ -208,14 +224,14 @@ async def process_cash_payment(order: Order):
             print(fr.MarkingTypeEx, fr.MarkingType, fr.CheckItemLocalResult)
             print(fr.ResultCode, fr.ResultCodeDescription)
 
-        summ_no_discount = summ_no_discount + float(item.kolvo)*float(item.price)
-    if order.alldiscount != '0':
+    if float(order.alldiscount) > 0 and float(order.alldiscount) <= 100:
+        summ_no_discount = sum(float(item.kolvo) * float(item.price) for item in order.products)
         fr.StringQuantity = 1
         fr.FeedDocument()
         fr.StringForPrinting = f"Скидка .. {order.alldiscount}%"
         fr.StringForPrinting = f"Сумма чека без скидки .. {summ_no_discount}"
     print(fr.CheckSubTotal())
-    fr.Summ1 = sum(float(item.kolvo) * float(item.price) * (1 - discount) for item in order.products)
+    fr.Summ1 = total_to_pay
     send_tag_1021_1203(fr, order.employee_pos + " " + order.employee_fio, order.employee_inn)
     fr.FNCloseCheckEx()
     print(fr.ResultCode, fr.ResultCodeDescription)
@@ -230,15 +246,19 @@ async def process_cash_payment(order: Order):
 
 @app.post("/api/v1/payment/card")
 async def process_card_payment(order: Order):
-    summ = 0
-    summ_no_discount = 0
     discount = 0
-    if order.alldiscount != '0':
+    total_to_pay = 0
+    if float(order.alldiscount) > 0 and float(order.alldiscount) <= 100:
         discount = float(order.alldiscount) / 100    
     fr = win32com.client.Dispatch('Addin.DRvFR')
     fr.Connect()
     for item in order.products:
         quantity = float(item.kolvo)
+        item_discount = discount
+        if max_discount:
+            item_discount = min(discount, float(item.maxdiscont) / 100)
+            item_no_discount = True
+        price = float(item.price)*(1 - item_discount)
         measure_unit = 0
         PaymentItemSign = 1
         print(item)
@@ -259,6 +279,7 @@ async def process_card_payment(order: Order):
         fr.PaymentItemSign =  PaymentItemSign
         fr.FNOperation()
         print(fr.ResultCode, fr.ResultCodeDescription)
+        total_to_pay += float(item.kolvo) * float(item.price) * (1 - item_discount)
 
         if item.draught == '1':
             send_user_details(fr, order.num.strip())
@@ -269,13 +290,13 @@ async def process_card_payment(order: Order):
             print(fr.MarkingTypeEx, fr.MarkingType, fr.CheckItemLocalResult)
             print(fr.ResultCode, fr.ResultCodeDescription)
 
-        summ_no_discount = summ_no_discount + float(item.kolvo)*float(item.price)
-    if order.alldiscount != '0':
+    if float(order.alldiscount) > 0 and float(order.alldiscount) <= 100:
+        summ_no_discount = sum(float(item.kolvo) * float(item.price) for item in order.products)
         fr.StringQuantity = 1
         fr.FeedDocument()
         fr.StringForPrinting = f"Скидка .. {order.alldiscount}%"
         fr.StringForPrinting = f"Сумма чека без скидки .. {summ_no_discount}"
-    fr.Summ2 = sum(float(item.kolvo) * float(item.price) * (1 - discount) for item in order.products)
+    fr.Summ2 = total_to_pay
     send_tag_1021_1203(fr, order.employee_pos + " " + order.employee_fio, order.employee_inn)
     print(fr.ResultCode, fr.ResultCodeDescription)
     print(fr.CheckItemLocalResult)
