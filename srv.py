@@ -168,7 +168,7 @@ def order_pay(order, type_pay) -> None:
             fr.PrintString()
         fr.StringForPrinting = f"Сумма чека без скидки .. {summ_no_discount}"
         fr.PrintString()
-    print(fr.CheckSubTotal())
+    # print(fr.CheckSubTotal())
     if type_pay == "cash":
         fr.Summ1 = total_to_pay
     if type_pay == "card":
