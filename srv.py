@@ -176,6 +176,7 @@ async def create_invoice(order: Order):
 @app.post("/api/v1/payment/cash")
 async def process_cash_payment(order: Order):
     print(order)
+    max_discount = os.getenv('MAX_DISCOUNT', 'False') in ['True']
     discount = 0
     total_to_pay = 0
     if float(order.alldiscount) > 0 and float(order.alldiscount) <= 100:
@@ -246,6 +247,8 @@ async def process_cash_payment(order: Order):
 
 @app.post("/api/v1/payment/card")
 async def process_card_payment(order: Order):
+    print(order)
+    max_discount = os.getenv('MAX_DISCOUNT', 'False') in ['True']
     discount = 0
     total_to_pay = 0
     if float(order.alldiscount) > 0 and float(order.alldiscount) <= 100:
