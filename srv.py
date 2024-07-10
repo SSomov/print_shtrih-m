@@ -19,6 +19,7 @@ class Item(BaseModel):
     product: str = None
     mod: str = None
     mark: str = None
+    marka: str = None
     draught: str = None
     maxdiscont: str = None
     GTIN: str = None
