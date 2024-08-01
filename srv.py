@@ -19,7 +19,7 @@ class Item(BaseModel):
     product: str = None
     mod: str = None
     mark: str = None
-    marka: str = None
+    qr: str = None
     draught: str = None
     maxdiscont: str = None
     GTIN: str = None
@@ -131,13 +131,15 @@ def order_pay(order, type_pay) -> None:
         measure_unit = 0
         PaymentItemSign = 1
         print(item)
-        if item.draught == '1':
-            print("разливное")
-            # quantity = 0.5
+        if item.marka == '1' and item.draught == '1':
+            print("алко разливное пиво")
             fr.DivisionalQuantity = False
             fr.Numerator = "1";
             fr.Denominator = "1";
             measure_unit = 41
+            PaymentItemSign = 31
+        elif item.marka == '1':
+            print("алко пиво")
             PaymentItemSign = 31
         fr.MeasureUnit = measure_unit
         fr.StringForPrinting = item.name
@@ -149,7 +151,7 @@ def order_pay(order, type_pay) -> None:
         print(fr.ResultCode, fr.ResultCodeDescription)
         total_to_pay += float(item.kolvo) * float(item.price) * (1 - item_discount)
 
-        if item.draught == '1':
+        if item.marka == '1' and item.draught == '1':
             send_user_details(fr, order.num.strip())
 
             fr.MCOSUSign = True
@@ -157,6 +159,9 @@ def order_pay(order, type_pay) -> None:
             fr.FNSendItemBarcode()
             print(fr.MarkingTypeEx, fr.MarkingType, fr.CheckItemLocalResult)
             print(fr.ResultCode, fr.ResultCodeDescription)
+        elif item.marka == '1':
+            fr.Barcode = item.qr
+            fr.FNSendItemBarcode()
 
     if float(order.alldiscount) > 0 and float(order.alldiscount) <= 100:
         summ_no_discount = sum(float(item.kolvo) * float(item.price) for item in order.products)
@@ -189,6 +194,7 @@ def order_pay(order, type_pay) -> None:
 async def create_invoice(order: Order):
     print(order)
     max_discount = os.getenv('MAX_DISCOUNT', 'False') in ['True']
+    cut_invoice = os.getenv('CUT_INVOICE', 'False') in ['True']
     fr = win32com.client.Dispatch('Addin.DRvFR')
     fr.Connect()
     fr.UseReceiptRibbon = True
@@ -222,7 +228,9 @@ async def create_invoice(order: Order):
     for item in order.products:
         print(item)
         fr.StringForPrinting = f"{item.name.upper()}...{item.kolvo}x{item.price}  {float(item.kolvo)*float(item.price)}"
-        fr.PrintString();
+        fr.PrintString()
+        fr.StringQuantity = 1
+        fr.FeedDocument()
         item_discount = discount
         if max_discount:
             item_discount = min(discount, float(item.maxdiscont) / 100)
@@ -247,7 +255,8 @@ async def create_invoice(order: Order):
 #    fr.StringQuantity = 2
 #    fr.FeedDocument()
 #    fr.CutType = 2
-    fr.CutCheck()
+    if cut_invoice:
+        fr.CutCheck()
     print(fr.ResultCode, fr.ResultCodeDescription)
     fr.Disconnect()
     # return order
