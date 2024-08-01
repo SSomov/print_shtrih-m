@@ -11,6 +11,7 @@
 ```
 ORG_TITLE=Название
 MAX_DISCOUNT=True # параметр учитывать ли ограничение максимальную скидку на товар
+CUT_INVOICE=True # отрезка счета
 ```
 
 Uvicorn, FastAPI
