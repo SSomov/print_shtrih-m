@@ -21,6 +21,7 @@ class Item(BaseModel):
     mark: str = None
     qr: str = None
     draught: str = None
+    bottled: str = None
     maxdiscont: str = None
     GTIN: str = None
     name: str = None
@@ -138,9 +139,12 @@ def order_pay(order, type_pay) -> None:
             fr.Denominator = "1";
             measure_unit = 41
             PaymentItemSign = 31
-        elif item.marka == '1':
+        elif item.marka == '1' and item.bottled == '1':
             print("алко пиво")
             PaymentItemSign = 31
+        elif item.marka == '1':
+            print("иные маркированные")
+            PaymentItemSign = 33
         fr.MeasureUnit = measure_unit
         fr.StringForPrinting = item.name
         fr.Price = price
