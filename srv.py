@@ -164,6 +164,12 @@ def order_pay(order, type_pay) -> None:
             print(fr.MarkingTypeEx, fr.MarkingType, fr.CheckItemLocalResult)
             print(fr.ResultCode, fr.ResultCodeDescription)
         elif item.marka == '1':
+            fr.BarCode = item.qr
+            fr.ItemStatus = 1
+            fr.FNCheckItemBarcode()
+            fr.FNAcceptMarkingCode()
+            print(fr.MarkingTypeEx, fr.MarkingType, fr.CheckItemLocalResult)
+            print(fr.ResultCode, fr.ResultCodeDescription)
             fr.Barcode = item.qr
             fr.FNSendItemBarcode()
 
