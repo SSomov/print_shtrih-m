@@ -132,17 +132,17 @@ def order_pay(order, type_pay) -> None:
         measure_unit = 0
         PaymentItemSign = 1
         print(item)
-        if item.marka == '1' and item.draught == '1':
+        if item.mark == '1' and item.draught == '1':
             print("алко разливное пиво")
             fr.DivisionalQuantity = False
             fr.Numerator = "1";
             fr.Denominator = "1";
             measure_unit = 41
             PaymentItemSign = 31
-        elif item.marka == '1' and item.bottled == '1':
+        elif item.mark == '1' and item.bottled == '1':
             print("алко пиво")
             PaymentItemSign = 31
-        elif item.marka == '1':
+        elif item.mark == '1':
             print("иные маркированные")
             PaymentItemSign = 33
         fr.MeasureUnit = measure_unit
@@ -155,7 +155,7 @@ def order_pay(order, type_pay) -> None:
         print(fr.ResultCode, fr.ResultCodeDescription)
         total_to_pay += float(item.kolvo) * float(item.price) * (1 - item_discount)
 
-        if item.marka == '1' and item.draught == '1':
+        if item.mark == '1' and item.draught == '1':
             send_user_details(fr, order.num.strip())
 
             fr.MCOSUSign = True
@@ -163,7 +163,7 @@ def order_pay(order, type_pay) -> None:
             fr.FNSendItemBarcode()
             print(fr.MarkingTypeEx, fr.MarkingType, fr.CheckItemLocalResult)
             print(fr.ResultCode, fr.ResultCodeDescription)
-        elif item.marka == '1':
+        elif item.mark == '1':
             fr.BarCode = item.qr
             fr.ItemStatus = 1
             fr.FNCheckItemBarcode()
