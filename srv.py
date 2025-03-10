@@ -64,7 +64,7 @@ def add_spaces_to_45_chars(input_string):
     padded_string = " " * left_spaces + input_string + " " * right_spaces
     return padded_string
 
-def get_ecr_status(fr: win32com.client.CDispatch) -> tuple[int, str]:
+def get_ecr_status(fr: win32com.client.CDispatch):
     """
     Функция запроса режима кассы.
     
