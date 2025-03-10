@@ -64,6 +64,17 @@ def add_spaces_to_45_chars(input_string):
     padded_string = " " * left_spaces + input_string + " " * right_spaces
     return padded_string
 
+def get_ecr_status(fr: win32com.client.CDispatch) -> tuple[int, str]:
+    """
+    Функция запроса режима кассы.
+    
+    :param fr: объект драйвера кассы (CDispatch)
+    :return: Кортеж (int, str) — режим кассы и его описание
+    """
+    fr.Password = 30
+    fr.GetECRStatus()
+    return fr.ECRMode, fr.ECRModeDescription
+
 def send_tag_1021_1203(fr, fio, inn) -> None:
     """
     функция отправки тэгов 1021 и 1203
@@ -117,6 +128,10 @@ def order_pay(order, type_pay) -> None:
         discount = float(order.alldiscount) / 100    
     fr = win32com.client.Dispatch('Addin.DRvFR')
     fr.Connect()
+    
+    ecr_mode, ecr_description = get_ecr_status(fr)
+    print(f"ECR Mode: {ecr_mode}, Description: {ecr_description}")
+    
     fr.Summ1Enabled = False
     fr.TaxValueEnabled = False
     # fr.CheckType = 0;
