@@ -3,6 +3,8 @@ from typing import Union, List
 from fastapi import FastAPI
 from pydantic import BaseModel
 
+from escpos.printer import Network
+
 from datetime import datetime
 import win32com.client
 import argparse
@@ -53,6 +55,14 @@ class Employee(BaseModel):
     fio: str = None
     pos: str = None
     inn: str = None
+
+class KitchenMarkRequest(BaseModel):
+    printer_ip: str
+    table_number: int
+    waiter_name: str
+    order_number: int
+    kitchen_type: str
+    products: List[Item] = None
 
 app = FastAPI()
 
@@ -303,6 +313,52 @@ async def process_card_payment(order: Order):
 async def print_invoice(order: Order):
     # Logic for printing invoice
     return {"message": "Invoice printed successfully"}
+
+@app.post("/api/v1/print/kitchen-mark")
+async def print_kitchen_mark(order: KitchenMarkRequest):
+    try:
+        # Подключение к принтеру
+        p = Network(order.printer_ip)
+
+        # Отключение китайского режима
+        p._raw(b'\x1C\x2E')
+
+        # Установка кодовой таблицы CP866 (русский язык)
+        p._raw(b'\x1B\x74\x10')
+
+        # Заголовок — номер заказа
+        p.set(align='center', width=2, height=1)
+        p.text(f"ЗАКАЗ №{order.order_number}\n")
+
+        # Печать типа кухни (например, "КУХНЯ" или "БАР")
+        p.set(align='center', width=2, height=2)
+        p.text(f"== {order.kitchen_type.upper()} ==\n")
+
+        p.set(align='left', width=1, height=1)
+        p.text("=" * 48 + "\n")
+        now = datetime.now().strftime("%d.%m.%Y %H:%M")
+        p.text(f"СТОЛ: {order.table_number:<5}   ОФИЦИАНТ: {order.waiter_name:<20}\n")
+        p.text(f"ВРЕМЯ: {now}\n")
+        p.text("=" * 48 + "\n")
+
+        # Позиции с точками
+        for item in order.products:
+            name = item.name[:35]  # обрезаем длинные названия
+            qty_str = f"{item.quantity} шт"
+            dots = "." * (48 - len(name) - len(qty_str))
+            p.text(f"{name}{dots}{qty_str}\n")
+
+        p.text("=" * 48 + "\n")
+
+        # Подача бумаги и частичная обрезка
+        p._raw(b'\x1B\x64\x02')
+        p.cut(mode='PART')
+        p._raw(b'\x1B\x64\x02')
+
+        return {"message": "Kitchen mark printed successfully"}
+
+    except Exception as e:
+        return {"error": str(e)}
 
 @app.get("/api/v1/print/xreport")
 async def print_x_report():
