@@ -422,17 +422,23 @@ async def cancel_document():
     result = kill_document()
     return {"message": "Document cancelled", **result}
 
-def build_egais_v4_xml(order, alco_items):
+def build_egais_v4_xml(order, alco_items, last_check_info=None):
     ticket = ET.Element("Ticket")
     document = ET.SubElement(ticket, "Document")
     receipt = ET.SubElement(document, "Receipt")
     content = ET.SubElement(receipt, "Content")
 
+    # Используем данные из ККМ, если есть
+    kkt_number = last_check_info.get('KKTNumber') if last_check_info else os.getenv("KKT_NUMBER", "0000000000000000")
+    fn_number = last_check_info.get('FNNumber') if last_check_info else os.getenv("FN_NUMBER", "9999999999999999")
+    fd_number = last_check_info.get('FDNumber') if last_check_info else "12345"
+    fp = last_check_info.get('FP') if last_check_info else "1234567890"
+
     ET.SubElement(content, "OperationType").text = "1"
-    ET.SubElement(content, "KKTNumber").text = os.getenv("KKT_NUMBER", "0000000000000000")
-    ET.SubElement(content, "FNNumber").text = os.getenv("FN_NUMBER", "9999999999999999")
-    ET.SubElement(content, "FDNumber").text = "12345"
-    ET.SubElement(content, "FP").text = "1234567890"
+    ET.SubElement(content, "KKTNumber").text = str(kkt_number)
+    ET.SubElement(content, "FNNumber").text = str(fn_number)
+    ET.SubElement(content, "FDNumber").text = str(fd_number)
+    ET.SubElement(content, "FP").text = str(fp)
     ET.SubElement(content, "Date").text = datetime.now().isoformat()
 
     cashier = ET.SubElement(content, "Cashier")
@@ -463,18 +469,27 @@ def print_egais_qr(qr_string):
 async def send_egais_check(order: Order):
     """
     Отправка чека с алкогольной позицией в ЕГАИС (v4 XML через УТМ) и печать QR-кода при успехе
+    Если EGAIS_SEND != true, только сохраняет исходный XML в файл.
     """
     egais_host = os.getenv('EGAIS_HOST', 'http://localhost:8080')
+    egais_send = os.getenv('EGAIS_SEND', 'false').lower() == 'true'
     alco_items = [item for item in order.products if item.mark == '1' or item.alc_code or item.egais_mark_code]
     if not alco_items:
         return {"message": "В заказе нет алкогольных позиций для ЕГАИС"}
     try:
-        xml_data = build_egais_v4_xml(order, alco_items)
+        # Получаем параметры последнего чека из ККМ
+        last_check_info = get_last_check_info()
+        xml_data = build_egais_v4_xml(order, alco_items, last_check_info=last_check_info)
+        ts = time.strftime('%Y%m%d_%H%M%S')
+        xml_filename = f"egais_xml_{ts}.xml"
+        with open(xml_filename, "wb") as f:
+            f.write(xml_data)
+        if not egais_send:
+            return {"message": "EGAIS_SEND is not true, XML сохранён в файл", "xml_file": xml_filename}
         files = {'xml_file': ('ticket.xml', xml_data, 'application/xml')}
         response = requests.post(f"{egais_host}/opt/in", files=files, timeout=10)
         response.raise_for_status()
         # Сохраняем ответ в файл
-        ts = time.strftime('%Y%m%d_%H%M%S')
         filename = f"egais_response_{ts}.txt"
         with open(filename, "w", encoding="utf-8") as f:
             f.write("=== ОТВЕТ ЕГАИС ===\n")
@@ -494,6 +509,40 @@ async def send_egais_check(order: Order):
             pass
         if qr_code:
             print_egais_qr(qr_code)
-        return {"message": "Чек v4 отправлен в ЕГАИС", "egais_response": response.text, "qr_code": qr_code, "saved_file": filename}
+        return {"message": "Чек v4 отправлен в ЕГАИС", "egais_response": response.text, "qr_code": qr_code, "saved_file": filename, "xml_file": xml_filename}
     except Exception as e:
         return {"error": str(e)}
+
+def get_last_check_info():
+    """
+    Получить данные о последнем пробитом чеке из ККМ (ККТ)
+    """
+    fr = win32com.client.Dispatch('Addin.DRvFR')
+    fr.Connect()
+    fr.Password = 30
+    fr.GetLastDocumentNumber()
+    fd_number = getattr(fr, 'DocumentNumber', None)
+    # Получаем ФП (фискальный признак) и другие реквизиты
+    fr.GetECRStatus()
+    fn_number = getattr(fr, 'FNSerial', None)
+    kkt_number = getattr(fr, 'EKLZNumber', None)
+    fp = getattr(fr, 'FNSessionNumber', None)
+    # Можно добавить другие поля по необходимости
+    fr.Disconnect()
+    return {
+        'FDNumber': fd_number,
+        'FNNumber': fn_number,
+        'KKTNumber': kkt_number,
+        'FP': fp
+    }
+
+@app.get("/api/v1/last-check-info")
+async def last_check_info():
+    """
+    Получить данные о последнем пробитом чеке из ККМ (ККТ)
+    """
+    try:
+        info = get_last_check_info()
+        return {"status": "success", "last_check": info}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
