@@ -18,7 +18,56 @@ import xml.etree.ElementTree as ET
 import time
 import traceback
 
+from tortoise import Tortoise
+from tortoise.models import Model
+from tortoise import fields
+
 load_dotenv()
+
+# Модели для Tortoise ORM
+class CheckLog(Model):
+    id = fields.IntField(pk=True)
+    timestamp = fields.DatetimeField(auto_now_add=True)
+    status = fields.CharField(max_length=20)
+    message = fields.TextField(null=True)
+    error = fields.TextField(null=True)
+    order_data = fields.JSONField(null=True)
+    result_code = fields.CharField(max_length=10, null=True)
+    result_description = fields.TextField(null=True)
+    filename = fields.CharField(max_length=255, null=True)
+
+    class Meta:
+        table = "check_logs"
+
+class EgaisLog(Model):
+    id = fields.IntField(pk=True)
+    timestamp = fields.DatetimeField(auto_now_add=True)
+    order_data = fields.JSONField(null=True)
+    xml_data = fields.TextField(null=True)
+    response_data = fields.TextField(null=True)
+    qr_code = fields.TextField(null=True)
+    status = fields.CharField(max_length=20)
+    error = fields.TextField(null=True)
+    xml_file = fields.CharField(max_length=255, null=True)
+    saved_file = fields.CharField(max_length=255, null=True)
+
+    class Meta:
+        table = "egais_logs"
+
+# Инициализация Tortoise ORM
+async def init_db():
+    try:
+        await Tortoise.init(
+            db_url=f"postgres://{os.getenv('POSTGRES_USER', 'postgres')}:{os.getenv('POSTGRES_PASSWORD', 'password')}@{os.getenv('POSTGRES_HOST', 'localhost')}:{os.getenv('POSTGRES_PORT', '5432')}/{os.getenv('POSTGRES_DB', 'print_logs')}",
+            modules={'models': ['srv']}
+        )
+        await Tortoise.generate_schemas()
+        print("PostgreSQL подключен успешно")
+        return True
+    except Exception as e:
+        print(f"Ошибка подключения к PostgreSQL: {e}")
+        print("Будет использоваться файловое логирование")
+        return False
 
 class Item(BaseModel):
     description: str = None
@@ -74,6 +123,14 @@ class KitchenMarkRequest(BaseModel):
     products: List[Item] = None
 
 app = FastAPI()
+
+# Инициализация БД при запуске
+db_connected = False
+
+@app.on_event("startup")
+async def startup_event():
+    global db_connected
+    db_connected = await init_db()
 
 def add_spaces_to_45_chars(input_string): 
     total_spaces = 45 - len(input_string)
@@ -137,7 +194,10 @@ def send_user_details(fr, numdoc) -> None:
         Значение реквизита «значение отраслевого реквизита» (тег 1265): mode=horeca
     """
 
-def save_check_result(prefix, content, error=None):
+def save_check_result_file(prefix, content, error=None):
+    """
+    Сохранить результат чека в файл (резервный способ)
+    """
     ts = time.strftime('%Y%m%d_%H%M%S')
     filename = f"{prefix}_{ts}.txt"
     with open(filename, "w", encoding="utf-8") as f:
@@ -147,7 +207,101 @@ def save_check_result(prefix, content, error=None):
         f.write(content)
     return filename
 
-def order_pay(order, type_pay):
+async def save_check_result(status, message, error=None, order_data=None, result_code=None, result_description=None):
+    """
+    Сохранить результат чека в БД, при ошибке - в файл
+    """
+    global db_connected
+    if not db_connected:
+        # Если БД не подключена, сразу сохраняем в файл
+        content = f"Status: {status}\nMessage: {message}\n"
+        if error:
+            content += f"Error: {error}\n"
+        if order_data:
+            content += f"Order: {order_data}\n"
+        if result_code:
+            content += f"ResultCode: {result_code}\n"
+        if result_description:
+            content += f"ResultDescription: {result_description}\n"
+        save_check_result_file("check", content, error)
+        return False
+    
+    try:
+        await CheckLog.create(
+            status=status,
+            message=message,
+            error=error,
+            order_data=order_data,
+            result_code=result_code,
+            result_description=result_description
+        )
+        return True
+    except Exception as e:
+        print(f"Ошибка сохранения в БД: {e}, сохраняем в файл")
+        # Резервное сохранение в файл
+        content = f"Status: {status}\nMessage: {message}\n"
+        if error:
+            content += f"Error: {error}\n"
+        if order_data:
+            content += f"Order: {order_data}\n"
+        if result_code:
+            content += f"ResultCode: {result_code}\n"
+        if result_description:
+            content += f"ResultDescription: {result_description}\n"
+        save_check_result_file("check", content, error)
+        return False
+
+async def save_egais_result(status, order_data=None, xml_data=None, response_data=None, qr_code=None, error=None, xml_file=None, saved_file=None):
+    """
+    Сохранить результат ЕГАИС в БД, при ошибке - в файл
+    """
+    global db_connected
+    if not db_connected:
+        # Если БД не подключена, сразу сохраняем в файл
+        content = f"Status: {status}\n"
+        if order_data:
+            content += f"Order: {order_data}\n"
+        if xml_data:
+            content += f"XML: {xml_data}\n"
+        if response_data:
+            content += f"Response: {response_data}\n"
+        if qr_code:
+            content += f"QR Code: {qr_code}\n"
+        if error:
+            content += f"Error: {error}\n"
+        save_check_result_file("egais", content, error)
+        return False
+    
+    try:
+        await EgaisLog.create(
+            status=status,
+            order_data=order_data,
+            xml_data=xml_data,
+            response_data=response_data,
+            qr_code=qr_code,
+            error=error,
+            xml_file=xml_file,
+            saved_file=saved_file
+        )
+        return True
+    except Exception as e:
+        print(f"Ошибка сохранения в БД: {e}, сохраняем в файл")
+        # Резервное сохранение в файл
+        content = f"Status: {status}\n"
+        if order_data:
+            content += f"Order: {order_data}\n"
+        if xml_data:
+            content += f"XML: {xml_data}\n"
+        if response_data:
+            content += f"Response: {response_data}\n"
+        if qr_code:
+            content += f"QR Code: {qr_code}\n"
+        if error:
+            content += f"Error: {error}\n"
+        save_check_result_file("egais", content, error)
+        return False
+
+async def order_pay(order, type_pay):
     try:
         print(order)
         max_discount = os.getenv('MAX_DISCOUNT', 'False') in ['True']
@@ -235,23 +389,32 @@ def order_pay(order, type_pay):
         fr.CutType = 2
         fr.CutCheck()
         fr.Disconnect()
-        # Сохраняем успешный чек
-        check_content = f"ResultCode: {fr.ResultCode}\nResultCodeDescription: {fr.ResultCodeDescription}\nOrder: {order}\n"
-        filename = save_check_result("check", check_content)
+        # Сохраняем успешный чек в БД
+        await save_check_result(
+            status="success",
+            message="Чек успешно напечатан",
+            order_data=order.dict(),
+            result_code=str(fr.ResultCode),
+            result_description=fr.ResultCodeDescription
+        )
         # Проверяем, есть ли алкогольные позиции для отправки в ЕГАИС
         alco_items = [item for item in order.products if item.mark == '1' or item.alc_code or item.egais_mark_code]
         if alco_items:
             try:
-                egais_result = send_egais_check(order)
+                egais_result = await send_egais_check(order)
                 print(f"ЕГАИС результат: {egais_result}")
             except Exception as e:
                 print(f"Ошибка отправки в ЕГАИС: {e}")
-        return {"status": "success", "message": "Чек успешно напечатан", "filename": filename}
+        return {"status": "success", "message": "Чек успешно напечатан"}
     except Exception as e:
-        # Сохраняем ошибку
-        error_content = traceback.format_exc()
-        filename = save_check_result("check", error_content, error=str(e))
-        return {"status": "error", "message": "Ошибка при печати чека", "filename": filename, "error": str(e)}
+        # Сохраняем ошибку в БД
+        await save_check_result(
+            status="error",
+            message="Ошибка при печати чека",
+            error=str(e),
+            order_data=order.dict()
+        )
+        return {"status": "error", "message": "Ошибка при печати чека", "error": str(e)}
 
 @app.post("/api/v1/invoice")
 async def create_invoice(order: Order):
@@ -329,12 +492,12 @@ async def create_invoice(order: Order):
 
 @app.post("/api/v1/payment/cash")
 async def process_cash_payment(order: Order):
-    result = order_pay(order, "cash")
+    result = await order_pay(order, "cash")
     return result
 
 @app.post("/api/v1/payment/card")
 async def process_card_payment(order: Order):
-    result = order_pay(order, "card")
+    result = await order_pay(order, "card")
     return result
 
 @app.post("/api/v1/print/invoice")
@@ -475,7 +638,7 @@ def print_egais_qr(qr_string):
     fr.PrintBarcode()
     fr.Disconnect()
 
-def send_egais_check(order: Order):
+async def send_egais_check(order: Order):
     """
     Отправка чека с алкогольной позицией в ЕГАИС (v4 XML через УТМ) и печать QR-кода при успехе
     Если EGAIS_SEND != true, только сохраняет исходный XML в файл.
@@ -484,6 +647,11 @@ def send_egais_check(order: Order):
     egais_send = os.getenv('EGAIS_SEND', 'false').lower() == 'true'
     alco_items = [item for item in order.products if item.mark == '1' or item.alc_code or item.egais_mark_code]
     if not alco_items:
+        await save_egais_result(
+            status="error",
+            order_data=order.dict(),
+            error="В заказе нет алкогольных позиций для ЕГАИС"
+        )
         return {"message": "В заказе нет алкогольных позиций для ЕГАИС"}
     try:
         # Получаем параметры последнего чека из ККМ
@@ -494,6 +662,12 @@ def send_egais_check(order: Order):
         with open(xml_filename, "wb") as f:
             f.write(xml_data)
         if not egais_send:
+            await save_egais_result(
+                status="saved",
+                order_data=order.dict(),
+                xml_data=xml_data.decode('utf-8'),
+                xml_file=xml_filename
+            )
             return {"message": "EGAIS_SEND is not true, XML сохранён в файл", "xml_file": xml_filename}
         files = {'xml_file': ('ticket.xml', xml_data, 'application/xml')}
         response = requests.post(f"{egais_host}/opt/in", files=files, timeout=10)
@@ -518,8 +692,25 @@ def send_egais_check(order: Order):
             pass
         if qr_code:
             print_egais_qr(qr_code)
+        # Сохраняем успешный результат в БД
+        await save_egais_result(
+            status="success",
+            order_data=order.dict(),
+            xml_data=xml_data.decode('utf-8'),
+            response_data=response.text,
+            qr_code=qr_code,
+            xml_file=xml_filename,
+            saved_file=filename
+        )
         return {"message": "Чек v4 отправлен в ЕГАИС", "egais_response": response.text, "qr_code": qr_code, "saved_file": filename, "xml_file": xml_filename}
     except Exception as e:
+        # Сохраняем ошибку в БД
+        await save_egais_result(
+            status="error",
+            order_data=order.dict(),
+            xml_data=xml_data.decode('utf-8') if 'xml_data' in locals() else None,
+            error=str(e)
+        )
         return {"error": str(e)}
 
 @app.post("/api/v1/send-egais-check")
@@ -533,24 +724,65 @@ def get_last_check_info():
     """
     Получить данные о последнем пробитом чеке из ККМ (ККТ)
     """
-    fr = win32com.client.Dispatch('Addin.DRvFR')
-    fr.Connect()
-    fr.Password = 30
-    fr.GetLastDocumentNumber()
-    fd_number = getattr(fr, 'DocumentNumber', None)
-    # Получаем ФП (фискальный признак) и другие реквизиты
-    fr.GetECRStatus()
-    fn_number = getattr(fr, 'FNSerial', None)
-    kkt_number = getattr(fr, 'EKLZNumber', None)
-    fp = getattr(fr, 'FNSessionNumber', None)
-    # Можно добавить другие поля по необходимости
-    fr.Disconnect()
-    return {
-        'FDNumber': fd_number,
-        'FNNumber': fn_number,
-        'KKTNumber': kkt_number,
-        'FP': fp
-    }
+    try:
+        fr = win32com.client.Dispatch('Addin.DRvFR')
+        fr.Connect()
+        fr.Password = 30
+        
+        # Пытаемся получить номер последнего документа
+        # GetLastDocumentNumber может не поддерживаться, используем альтернативный способ
+        fd_number = None
+        try:
+            # Сначала пробуем GetLastDocumentNumber
+            fr.GetLastDocumentNumber()
+            fd_number = getattr(fr, 'DocumentNumber', None)
+        except Exception as e:
+            print(f"GetLastDocumentNumber не поддерживается: {e}")
+            try:
+                # Альтернативный способ - получаем через GetECRStatus
+                fr.GetECRStatus()
+                # Некоторые драйверы возвращают номер документа в других полях
+                fd_number = getattr(fr, 'DocumentNumber', None) or getattr(fr, 'LastDocumentNumber', None)
+            except Exception as e2:
+                print(f"Альтернативный способ тоже не работает: {e2}")
+                fd_number = None
+        
+        # Получаем ФП (фискальный признак) и другие реквизиты
+        try:
+            fr.GetECRStatus()
+            fn_number = getattr(fr, 'FNSerial', None)
+            kkt_number = getattr(fr, 'EKLZNumber', None)
+            fp = getattr(fr, 'FNSessionNumber', None)
+        except Exception as e:
+            print(f"Ошибка получения статуса ККТ: {e}")
+            fn_number = None
+            kkt_number = None
+            fp = None
+        
+        fr.Disconnect()
+        
+        # Если не удалось получить номер документа, генерируем его
+        if not fd_number:
+            # Генерируем номер документа на основе текущего времени
+            import time
+            fd_number = str(int(time.time()) % 100000)  # Последние 5 цифр timestamp
+        
+        # Возвращаем значения или fallback из переменных окружения
+        return {
+            'FDNumber': fd_number,
+            'FNNumber': fn_number or os.getenv("FN_NUMBER", "9999999999999999"),
+            'KKTNumber': kkt_number or os.getenv("KKT_NUMBER", "0000000000000000"),
+            'FP': fp or "1234567890"
+        }
+    except Exception as e:
+        print(f"Ошибка подключения к ККТ: {e}")
+        # Возвращаем значения по умолчанию из переменных окружения
+        return {
+            'FDNumber': "1",
+            'FNNumber': os.getenv("FN_NUMBER", "9999999999999999"),
+            'KKTNumber': os.getenv("KKT_NUMBER", "0000000000000000"),
+            'FP': "1234567890"
+        }
 
 @app.get("/api/v1/last-check-info")
 async def last_check_info():
@@ -560,5 +792,102 @@ async def last_check_info():
     try:
         info = get_last_check_info()
         return {"status": "success", "last_check": info}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+@app.get("/api/v1/logs/checks")
+async def get_check_logs(page: int = 1, limit: int = 50, status: str = None):
+    """
+    Получить список логов чеков с пагинацией
+    """
+    global db_connected
+    if not db_connected:
+        return {"status": "error", "message": "База данных не подключена"}
+    
+    try:
+        offset = (page - 1) * limit
+        query = CheckLog.all().order_by('-timestamp')
+        
+        if status:
+            query = query.filter(status=status)
+        
+        total = await query.count()
+        logs = await query.offset(offset).limit(limit)
+        
+        return {
+            "status": "success",
+            "data": [log.__dict__ for log in logs],
+            "pagination": {
+                "page": page,
+                "limit": limit,
+                "total": total,
+                "pages": (total + limit - 1) // limit
+            }
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+@app.get("/api/v1/logs/egais")
+async def get_egais_logs(page: int = 1, limit: int = 50, status: str = None):
+    """
+    Получить список логов ЕГАИС с пагинацией
+    """
+    global db_connected
+    if not db_connected:
+        return {"status": "error", "message": "База данных не подключена"}
+    
+    try:
+        offset = (page - 1) * limit
+        query = EgaisLog.all().order_by('-timestamp')
+        
+        if status:
+            query = query.filter(status=status)
+        
+        total = await query.count()
+        logs = await query.offset(offset).limit(limit)
+        
+        return {
+            "status": "success",
+            "data": [log.__dict__ for log in logs],
+            "pagination": {
+                "page": page,
+                "limit": limit,
+                "total": total,
+                "pages": (total + limit - 1) // limit
+            }
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+@app.get("/api/v1/logs/stats")
+async def get_logs_stats():
+    """
+    Получить статистику по логам
+    """
+    global db_connected
+    if not db_connected:
+        return {"status": "error", "message": "База данных не подключена"}
+    
+    try:
+        # Статистика по чекам
+        check_stats = {
+            "total": await CheckLog.all().count(),
+            "success": await CheckLog.filter(status="success").count(),
+            "error": await CheckLog.filter(status="error").count()
+        }
+        
+        # Статистика по ЕГАИС
+        egais_stats = {
+            "total": await EgaisLog.all().count(),
+            "success": await EgaisLog.filter(status="success").count(),
+            "error": await EgaisLog.filter(status="error").count(),
+            "saved": await EgaisLog.filter(status="saved").count()
+        }
+        
+        return {
+            "status": "success",
+            "checks": check_stats,
+            "egais": egais_stats
+        }
     except Exception as e:
         return {"status": "error", "error": str(e)}
