@@ -389,17 +389,47 @@ async def order_pay(order, type_pay):
         fr.CutType = 2
         fr.CutCheck()
         
-        # Получаем номер документа после успешной печати чека
-        document_number = None
+        # Получаем все данные ККТ после успешной печати чека
+        check_info = None
         try:
-            # Получаем номер документа из ККТ
-            fr.GetECRStatus()
-            document_number = getattr(fr, 'DocumentNumber', None)
+            # Получаем данные из ККТ
+            kkt_data = get_kkt_info()
+            if kkt_data["status"] == "success":
+                kkt_info = kkt_data["kkt_info"]
+                
+                # Извлекаем нужные данные из разных секций
+                document_number = None
+                fn_serial = None
+                kkt_registration_number = None
+                fiscal_sign = None
+                
+                # Получаем номер документа из ECRStatus
+                if 'ECRStatus' in kkt_info and 'DocumentNumber' in kkt_info['ECRStatus']:
+                    document_number = kkt_info['ECRStatus']['DocumentNumber']
+                
+                # Получаем серийный номер ФН из FNStatus
+                if 'FNStatus' in kkt_info and 'SerialNumber' in kkt_info['FNStatus']:
+                    fn_serial = kkt_info['FNStatus']['SerialNumber']
+                
+                # Получаем регистрационный номер ККТ и фискальный признак из FNFiscalization
+                if 'FNFiscalization' in kkt_info:
+                    kkt_registration_number = kkt_info['FNFiscalization'].get('KKTRegistrationNumber')
+                    fiscal_sign = kkt_info['FNFiscalization'].get('FiscalSign')
+                
+                # Формируем check_info с реальными данными из ККТ
+                check_info = {
+                    'FDNumber': str(document_number) if document_number else None,
+                    'FNNumber': fn_serial,
+                    'FNGetSerial': fn_serial,
+                    'KKTNumber': None,  # Пока не получаем из ККТ
+                    'KKTRegistrationNumber': kkt_registration_number,
+                    'FP': str(fiscal_sign) if fiscal_sign else None
+                }
+                print(f"Получены данные ККТ: {check_info}")
+            else:
+                print(f"Ошибка получения данных ККТ: {kkt_data.get('error', 'Unknown error')}")
         except Exception as e:
-            print(f"Ошибка получения номера документа: {e}")
-            # Генерируем номер на основе времени если не удалось получить из ККТ
-            import time
-            document_number = str(int(time.time()) % 100000)
+            print(f"Ошибка получения данных ККТ: {e}")
         
         fr.Disconnect()
         
@@ -416,15 +446,11 @@ async def order_pay(order, type_pay):
         alco_items = [item for item in order.products if item.mark == '1' or item.alc_code or item.egais_mark_code]
         if alco_items:
             try:
-                # Передаем данные текущего чека в ЕГАИС
-                check_info = {
-                    'FDNumber': str(document_number),  # Используем правильный номер документа
-                    'FNNumber': os.getenv("FN_NUMBER", "9999999999999999"),
-                    'FNGetSerial': os.getenv("FN_GET_SERIAL", "9999999999999999"),
-                    'KKTNumber': os.getenv("KKT_NUMBER", "0000000000000000"),
-                    'KKTRegistrationNumber': os.getenv("KKT_REGISTRATION_NUMBER", "0000000000000000"),
-                    'FP': "1234567890"  # Фискальный признак по умолчанию
-                }
+                # Если не удалось получить данные из ККТ, не отправляем в ЕГАИС
+                if not check_info:
+                    print("Не удалось получить данные ККТ, пропускаем отправку в ЕГАИС")
+                    return {"status": "success", "message": "Чек успешно напечатан, но не отправлен в ЕГАИС"}
+                
                 egais_result = await send_egais_check(order, check_info)
                 print(f"ЕГАИС результат: {egais_result}")
             except Exception as e:
