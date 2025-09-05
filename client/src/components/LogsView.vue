@@ -35,6 +35,18 @@
             </el-table-column>
             <el-table-column prop="message" label="Сообщение" />
             <el-table-column prop="result_code" label="Код результата" width="120" />
+            <el-table-column prop="document_number" label="Номер чека" width="120">
+              <template #default="scope">
+                <span v-if="scope.row.document_number">{{ scope.row.document_number }}</span>
+                <span v-else class="text-muted">-</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="fiscal_sign" label="Фискальный признак" width="150">
+              <template #default="scope">
+                <span v-if="scope.row.fiscal_sign" class="fiscal-sign">{{ scope.row.fiscal_sign }}</span>
+                <span v-else class="text-muted">-</span>
+              </template>
+            </el-table-column>
             <el-table-column label="Действия" width="100">
               <template #default="scope">
                 <el-button size="small" @click="viewCheckDetails(scope.row)">Детали</el-button>
@@ -247,6 +259,20 @@ export default {
 .qr-code {
   font-family: monospace;
   font-size: 12px;
+}
+
+.fiscal-sign {
+  font-family: monospace;
+  font-size: 11px;
+  color: #409eff;
+  background: #f0f9ff;
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+.text-muted {
+  color: #909399;
+  font-style: italic;
 }
 
 .card-header {

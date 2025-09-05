@@ -6,6 +6,7 @@
         <el-menu mode="horizontal" :default-active="activeTab" @select="handleMenuSelect">
           <el-menu-item index="checks">Чеки</el-menu-item>
           <el-menu-item index="egais">ЕГАИС</el-menu-item>
+          <el-menu-item index="kkt">ККТ</el-menu-item>
           <el-menu-item index="logs">Логи</el-menu-item>
           <el-menu-item index="stats">Статистика</el-menu-item>
         </el-menu>
@@ -14,6 +15,7 @@
       <el-main>
         <CheckForm v-if="activeTab === 'checks'" @check-created="handleCheckCreated" />
         <EgaisForm v-if="activeTab === 'egais'" @egais-sent="handleEgaisSent" />
+        <KktInfo v-if="activeTab === 'kkt'" />
         <LogsView v-if="activeTab === 'logs'" />
         <StatsView v-if="activeTab === 'stats'" />
       </el-main>
@@ -24,6 +26,7 @@
 <script>
 import CheckForm from './components/CheckForm.vue'
 import EgaisForm from './components/EgaisForm.vue'
+import KktInfo from './components/KktInfo.vue'
 import LogsView from './components/LogsView.vue'
 import StatsView from './components/StatsView.vue'
 
@@ -32,6 +35,7 @@ export default {
   components: {
     CheckForm,
     EgaisForm,
+    KktInfo,
     LogsView,
     StatsView
   },

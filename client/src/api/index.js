@@ -35,7 +35,10 @@ export const logsApi = {
   getEgaisLogs: (params) => api.get('/logs/egais', { params }),
   
   // Получение статистики
-  getStats: () => api.get('/logs/stats')
+  getStats: () => api.get('/logs/stats'),
+  
+  // Получение информации о ККТ
+  getKktInfo: () => api.get('/kkt-info')
 }
 
 // API для печати

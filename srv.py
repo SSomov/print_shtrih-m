@@ -35,6 +35,8 @@ class CheckLog(Model):
     result_code = fields.CharField(max_length=10, null=True)
     result_description = fields.TextField(null=True)
     filename = fields.CharField(max_length=255, null=True)
+    document_number = fields.CharField(max_length=50, null=True)  # Номер чека
+    fiscal_sign = fields.CharField(max_length=50, null=True)  # Фискальный признак
 
     class Meta:
         table = "check_logs"
@@ -207,7 +209,7 @@ def save_check_result_file(prefix, content, error=None):
         f.write(content)
     return filename
 
-async def save_check_result(status, message, error=None, order_data=None, result_code=None, result_description=None):
+async def save_check_result(status, message, error=None, order_data=None, result_code=None, result_description=None, document_number=None, fiscal_sign=None):
     """
     Сохранить результат чека в БД, при ошибке - в файл
     """
@@ -223,6 +225,10 @@ async def save_check_result(status, message, error=None, order_data=None, result
             content += f"ResultCode: {result_code}\n"
         if result_description:
             content += f"ResultDescription: {result_description}\n"
+        if document_number:
+            content += f"DocumentNumber: {document_number}\n"
+        if fiscal_sign:
+            content += f"FiscalSign: {fiscal_sign}\n"
         save_check_result_file("check", content, error)
         return False
     
@@ -233,7 +239,9 @@ async def save_check_result(status, message, error=None, order_data=None, result
             error=error,
             order_data=order_data,
             result_code=result_code,
-            result_description=result_description
+            result_description=result_description,
+            document_number=document_number,
+            fiscal_sign=fiscal_sign
         )
         return True
     except Exception as e:
@@ -248,6 +256,10 @@ async def save_check_result(status, message, error=None, order_data=None, result
             content += f"ResultCode: {result_code}\n"
         if result_description:
             content += f"ResultDescription: {result_description}\n"
+        if document_number:
+            content += f"DocumentNumber: {document_number}\n"
+        if fiscal_sign:
+            content += f"FiscalSign: {fiscal_sign}\n"
         save_check_result_file("check", content, error)
         return False
 
@@ -434,12 +446,20 @@ async def order_pay(order, type_pay):
         fr.Disconnect()
         
         # Сохраняем успешный чек в БД
+        document_number = None
+        fiscal_sign = None
+        if check_info:
+            document_number = check_info.get('FDNumber')
+            fiscal_sign = check_info.get('FP')
+        
         await save_check_result(
             status="success",
             message="Чек успешно напечатан",
             order_data=order.dict(),
             result_code=str(fr.ResultCode),
-            result_description=fr.ResultCodeDescription
+            result_description=fr.ResultCodeDescription,
+            document_number=document_number,
+            fiscal_sign=fiscal_sign
         )
         
         # Проверяем, есть ли алкогольные позиции для отправки в ЕГАИС
@@ -462,7 +482,9 @@ async def order_pay(order, type_pay):
             status="error",
             message="Ошибка при печати чека",
             error=str(e),
-            order_data=order.dict()
+            order_data=order.dict(),
+            document_number=None,
+            fiscal_sign=None
         )
         return {"status": "error", "message": "Ошибка при печати чека", "error": str(e)}
 
