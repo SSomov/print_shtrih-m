@@ -238,6 +238,14 @@ def order_pay(order, type_pay):
         # Сохраняем успешный чек
         check_content = f"ResultCode: {fr.ResultCode}\nResultCodeDescription: {fr.ResultCodeDescription}\nOrder: {order}\n"
         filename = save_check_result("check", check_content)
+        # Проверяем, есть ли алкогольные позиции для отправки в ЕГАИС
+        alco_items = [item for item in order.products if item.mark == '1' or item.alc_code or item.egais_mark_code]
+        if alco_items:
+            try:
+                egais_result = send_egais_check(order)
+                print(f"ЕГАИС результат: {egais_result}")
+            except Exception as e:
+                print(f"Ошибка отправки в ЕГАИС: {e}")
         return {"status": "success", "message": "Чек успешно напечатан", "filename": filename}
     except Exception as e:
         # Сохраняем ошибку
@@ -310,6 +318,8 @@ async def create_invoice(order: Order):
 #    fr.StringQuantity = 2
 #    fr.FeedDocument()
 #    fr.CutType = 2
+    fr.StringQuantity = 15
+    fr.FeedDocument()
     if cut_invoice:
         fr.CutCheck()
     print(fr.ResultCode, fr.ResultCodeDescription)
@@ -465,8 +475,7 @@ def print_egais_qr(qr_string):
     fr.PrintBarcode()
     fr.Disconnect()
 
-@app.post("/api/v1/send-egais-check")
-async def send_egais_check(order: Order):
+def send_egais_check(order: Order):
     """
     Отправка чека с алкогольной позицией в ЕГАИС (v4 XML через УТМ) и печать QR-кода при успехе
     Если EGAIS_SEND != true, только сохраняет исходный XML в файл.
@@ -512,6 +521,13 @@ async def send_egais_check(order: Order):
         return {"message": "Чек v4 отправлен в ЕГАИС", "egais_response": response.text, "qr_code": qr_code, "saved_file": filename, "xml_file": xml_filename}
     except Exception as e:
         return {"error": str(e)}
+
+@app.post("/api/v1/send-egais-check")
+async def api_send_egais_check(order: Order):
+    """
+    API endpoint для отправки чека с алкогольной позицией в ЕГАИС
+    """
+    return send_egais_check(order)
 
 def get_last_check_info():
     """
