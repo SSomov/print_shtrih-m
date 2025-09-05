@@ -388,7 +388,21 @@ async def order_pay(order, type_pay):
         fr.FeedDocument()
         fr.CutType = 2
         fr.CutCheck()
+        
+        # Получаем номер документа после успешной печати чека
+        document_number = None
+        try:
+            # Получаем номер документа из ККТ
+            fr.GetECRStatus()
+            document_number = getattr(fr, 'DocumentNumber', None)
+        except Exception as e:
+            print(f"Ошибка получения номера документа: {e}")
+            # Генерируем номер на основе времени если не удалось получить из ККТ
+            import time
+            document_number = str(int(time.time()) % 100000)
+        
         fr.Disconnect()
+        
         # Сохраняем успешный чек в БД
         await save_check_result(
             status="success",
@@ -397,11 +411,21 @@ async def order_pay(order, type_pay):
             result_code=str(fr.ResultCode),
             result_description=fr.ResultCodeDescription
         )
+        
         # Проверяем, есть ли алкогольные позиции для отправки в ЕГАИС
         alco_items = [item for item in order.products if item.mark == '1' or item.alc_code or item.egais_mark_code]
         if alco_items:
             try:
-                egais_result = await send_egais_check(order)
+                # Передаем данные текущего чека в ЕГАИС
+                check_info = {
+                    'FDNumber': str(document_number),  # Используем правильный номер документа
+                    'FNNumber': os.getenv("FN_NUMBER", "9999999999999999"),
+                    'FNGetSerial': os.getenv("FN_GET_SERIAL", "9999999999999999"),
+                    'KKTNumber': os.getenv("KKT_NUMBER", "0000000000000000"),
+                    'KKTRegistrationNumber': os.getenv("KKT_REGISTRATION_NUMBER", "0000000000000000"),
+                    'FP': "1234567890"  # Фискальный признак по умолчанию
+                }
+                egais_result = await send_egais_check(order, check_info)
                 print(f"ЕГАИС результат: {egais_result}")
             except Exception as e:
                 print(f"Ошибка отправки в ЕГАИС: {e}")
@@ -603,13 +627,17 @@ def build_egais_v4_xml(order, alco_items, last_check_info=None):
 
     # Используем данные из ККМ, если есть
     kkt_number = last_check_info.get('KKTNumber') if last_check_info else os.getenv("KKT_NUMBER", "0000000000000000")
+    kkt_registration_number = last_check_info.get('KKTRegistrationNumber') if last_check_info else os.getenv("KKT_REGISTRATION_NUMBER", "0000000000000000")
     fn_number = last_check_info.get('FNNumber') if last_check_info else os.getenv("FN_NUMBER", "9999999999999999")
+    fn_get_serial = last_check_info.get('FNGetSerial') if last_check_info else os.getenv("FN_GET_SERIAL", "9999999999999999")
     fd_number = last_check_info.get('FDNumber') if last_check_info else "12345"
     fp = last_check_info.get('FP') if last_check_info else "1234567890"
 
     ET.SubElement(content, "OperationType").text = "1"
     ET.SubElement(content, "KKTNumber").text = str(kkt_number)
+    ET.SubElement(content, "KKTRegistrationNumber").text = str(kkt_registration_number)
     ET.SubElement(content, "FNNumber").text = str(fn_number)
+    ET.SubElement(content, "FNGetSerial").text = str(fn_get_serial)
     ET.SubElement(content, "FDNumber").text = str(fd_number)
     ET.SubElement(content, "FP").text = str(fp)
     ET.SubElement(content, "Date").text = datetime.now().isoformat()
@@ -638,7 +666,7 @@ def print_egais_qr(qr_string):
     fr.PrintBarcode()
     fr.Disconnect()
 
-async def send_egais_check(order: Order):
+async def send_egais_check(order: Order, check_info=None):
     """
     Отправка чека с алкогольной позицией в ЕГАИС (v4 XML через УТМ) и печать QR-кода при успехе
     Если EGAIS_SEND != true, только сохраняет исходный XML в файл.
@@ -654,9 +682,18 @@ async def send_egais_check(order: Order):
         )
         return {"message": "В заказе нет алкогольных позиций для ЕГАИС"}
     try:
-        # Получаем параметры последнего чека из ККМ
-        last_check_info = get_last_check_info()
-        xml_data = build_egais_v4_xml(order, alco_items, last_check_info=last_check_info)
+        # Используем переданные данные чека или получаем из ККТ
+        if not check_info:
+            # Если check_info не передан, используем значения по умолчанию
+            check_info = {
+                'FDNumber': "12345",
+                'FNNumber': os.getenv("FN_NUMBER", "9999999999999999"),
+                'FNGetSerial': os.getenv("FN_GET_SERIAL", "9999999999999999"),
+                'KKTNumber': os.getenv("KKT_NUMBER", "0000000000000000"),
+                'KKTRegistrationNumber': os.getenv("KKT_REGISTRATION_NUMBER", "0000000000000000"),
+                'FP': "1234567890"
+            }
+        xml_data = build_egais_v4_xml(order, alco_items, last_check_info=check_info)
         ts = time.strftime('%Y%m%d_%H%M%S')
         xml_filename = f"egais_xml_{ts}.xml"
         with open(xml_filename, "wb") as f:
@@ -718,82 +755,88 @@ async def api_send_egais_check(order: Order):
     """
     API endpoint для отправки чека с алкогольной позицией в ЕГАИС
     """
-    return send_egais_check(order)
+    return await send_egais_check(order)
 
-def get_last_check_info():
+def get_kkt_info():
     """
-    Получить данные о последнем пробитом чеке из ККМ (ККТ)
+    Получить общие параметры ККТ включая DocumentNumber
     """
     try:
         fr = win32com.client.Dispatch('Addin.DRvFR')
         fr.Connect()
         fr.Password = 30
         
-        # Пытаемся получить номер последнего документа
-        # GetLastDocumentNumber может не поддерживаться, используем альтернативный способ
-        fd_number = None
-        try:
-            # Сначала пробуем GetLastDocumentNumber
-            fr.GetLastDocumentNumber()
-            fd_number = getattr(fr, 'DocumentNumber', None)
-        except Exception as e:
-            print(f"GetLastDocumentNumber не поддерживается: {e}")
-            try:
-                # Альтернативный способ - получаем через GetECRStatus
-                fr.GetECRStatus()
-                # Некоторые драйверы возвращают номер документа в других полях
-                fd_number = getattr(fr, 'DocumentNumber', None) or getattr(fr, 'LastDocumentNumber', None)
-            except Exception as e2:
-                print(f"Альтернативный способ тоже не работает: {e2}")
-                fd_number = None
+        kkt_info = {}
         
-        # Получаем ФП (фискальный признак) и другие реквизиты
+        # Получаем статус ККТ
         try:
             fr.GetECRStatus()
-            fn_number = getattr(fr, 'FNSerial', None)
-            kkt_number = getattr(fr, 'EKLZNumber', None)
-            fp = getattr(fr, 'FNSessionNumber', None)
+            kkt_info['ECRStatus'] = {
+                'DocumentNumber': getattr(fr, 'DocumentNumber', None),
+                'ResultCode': fr.ResultCode,
+                'ResultCodeDescription': fr.ResultCodeDescription
+            }
         except Exception as e:
-            print(f"Ошибка получения статуса ККТ: {e}")
-            fn_number = None
-            kkt_number = None
-            fp = None
+            kkt_info['ECRStatus'] = {'error': str(e)}
+        
+        # Получаем статус ФН
+        try:
+            fr.FNGetStatus()
+            kkt_info['FNStatus'] = {
+                'FNLifeState': getattr(fr, 'FNLifeState', None),
+                'FNCurrentDocument': getattr(fr, 'FNCurrentDocument', None),
+                'FNDocumentData': getattr(fr, 'FNDocumentData', None),
+                'FNSessionState': getattr(fr, 'FNSessionState', None),
+                'FNWarningFlags': getattr(fr, 'FNWarningFlags', None),
+                'Date': getattr(fr, 'Date', None),
+                'Time': getattr(fr, 'Time', None),
+                'SerialNumber': getattr(fr, 'SerialNumber', None),
+                'DocumentNumber': getattr(fr, 'DocumentNumber', None),
+                'ResultCode': fr.ResultCode,
+                'ResultCodeDescription': fr.ResultCodeDescription
+            }
+        except Exception as e:
+            kkt_info['FNStatus'] = {'error': str(e)}
+        
+        # Получаем итоги фискализации ФН
+        try:
+            fr.FNGetFiscalizationResult()
+            kkt_info['FNFiscalization'] = {
+                'Date': getattr(fr, 'Date', None),
+                'INN': getattr(fr, 'INN', None),
+                'KKTRegistrationNumber': getattr(fr, 'KKTRegistrationNumber', None),
+                'TaxType': getattr(fr, 'TaxType', None),
+                'WorkMode': getattr(fr, 'WorkMode', None),
+                'RegistrationReasonCode': getattr(fr, 'RegistrationReasonCode', None),
+                'DocumentNumber': getattr(fr, 'DocumentNumber', None),
+                'FiscalSign': getattr(fr, 'FiscalSign', None),
+                'ResultCode': fr.ResultCode,
+                'ResultCodeDescription': fr.ResultCodeDescription
+            }
+        except Exception as e:
+            kkt_info['FNFiscalization'] = {'error': str(e)}
         
         fr.Disconnect()
         
-        # Если не удалось получить номер документа, генерируем его
-        if not fd_number:
-            # Генерируем номер документа на основе текущего времени
-            import time
-            fd_number = str(int(time.time()) % 100000)  # Последние 5 цифр timestamp
-        
-        # Возвращаем значения или fallback из переменных окружения
         return {
-            'FDNumber': fd_number,
-            'FNNumber': fn_number or os.getenv("FN_NUMBER", "9999999999999999"),
-            'KKTNumber': kkt_number or os.getenv("KKT_NUMBER", "0000000000000000"),
-            'FP': fp or "1234567890"
+            "status": "success",
+            "kkt_info": kkt_info
         }
+        
     except Exception as e:
-        print(f"Ошибка подключения к ККТ: {e}")
-        # Возвращаем значения по умолчанию из переменных окружения
         return {
-            'FDNumber': "1",
-            'FNNumber': os.getenv("FN_NUMBER", "9999999999999999"),
-            'KKTNumber': os.getenv("KKT_NUMBER", "0000000000000000"),
-            'FP': "1234567890"
+            "status": "error",
+            "error": str(e)
         }
 
-@app.get("/api/v1/last-check-info")
-async def last_check_info():
+@app.get("/api/v1/kkt-info")
+async def api_get_kkt_info():
     """
-    Получить данные о последнем пробитом чеке из ККМ (ККТ)
+    API endpoint для получения общих параметров ККТ включая DocumentNumber
     """
-    try:
-        info = get_last_check_info()
-        return {"status": "success", "last_check": info}
-    except Exception as e:
-        return {"status": "error", "error": str(e)}
+    return get_kkt_info()
+
+
 
 @app.get("/api/v1/logs/checks")
 async def get_check_logs(page: int = 1, limit: int = 50, status: str = None):
