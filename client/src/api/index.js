@@ -38,7 +38,10 @@ export const logsApi = {
   getStats: () => api.get('/logs/stats'),
   
   // Получение информации о ККТ
-  getKktInfo: () => api.get('/kkt-info')
+  getKktInfo: () => api.get('/kkt-info'),
+  
+  // Получение срока действия ФН
+  getFnExpiration: () => api.get('/fn-expiration')
 }
 
 // API для печати

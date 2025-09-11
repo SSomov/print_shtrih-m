@@ -24,6 +24,15 @@ from tortoise import fields
 
 load_dotenv()
 
+# Глобальные переменные для кэширования данных ККТ
+KKT_CACHE = {
+    'INN': None,
+    'KKTRegistrationNumber': None,
+    'KKTSerialNumber': None,
+    'FNSerialNumber': None,
+    'initialized': False
+}
+
 # Модели для Tortoise ORM
 class CheckLog(Model):
     id = fields.IntField(pk=True)
@@ -133,6 +142,9 @@ db_connected = False
 async def startup_event():
     global db_connected
     db_connected = await init_db()
+    
+    # Инициализируем кэш данных ККТ
+    initialize_kkt_cache()
 
 def add_spaces_to_45_chars(input_string): 
     total_spaces = 45 - len(input_string)
@@ -142,7 +154,7 @@ def add_spaces_to_45_chars(input_string):
     padded_string = " " * left_spaces + input_string + " " * right_spaces
     return padded_string
 
-def get_ecr_status(fr: win32com.client.CDispatch):
+def get_ecr_mode(fr: win32com.client.CDispatch):
     """
     Функция запроса режима кассы.
     
@@ -324,7 +336,7 @@ async def order_pay(order, type_pay):
             discount = float(order.alldiscount) / 100    
         fr = win32com.client.Dispatch('Addin.DRvFR')
         fr.Connect()
-        ecr_mode, ecr_description = get_ecr_status(fr)
+        ecr_mode, ecr_description = get_ecr_mode(fr)
         print(f"ECR Mode: {ecr_mode}, Description: {ecr_description}")
         fr.Summ1Enabled = False
         fr.TaxValueEnabled = False
@@ -401,45 +413,22 @@ async def order_pay(order, type_pay):
         fr.CutType = 2
         fr.CutCheck()
         
-        # Получаем все данные ККТ после успешной печати чека
+        # Получаем данные ККТ из кэша и актуальные данные чека
         check_info = None
+        result_code = fr.ResultCode
+        result_description = fr.ResultCodeDescription
+        
         try:
-            # Получаем данные из ККТ
-            kkt_data = get_kkt_info()
-            if kkt_data["status"] == "success":
-                kkt_info = kkt_data["kkt_info"]
-                
-                # Извлекаем нужные данные из разных секций
-                document_number = None
-                fn_serial = None
-                kkt_registration_number = None
-                fiscal_sign = None
-                
-                # Получаем номер документа из ECRStatus
-                if 'ECRStatus' in kkt_info and 'DocumentNumber' in kkt_info['ECRStatus']:
-                    document_number = kkt_info['ECRStatus']['DocumentNumber']
-                
-                # Получаем серийный номер ФН из FNStatus
-                if 'FNStatus' in kkt_info and 'SerialNumber' in kkt_info['FNStatus']:
-                    fn_serial = kkt_info['FNStatus']['SerialNumber']
-                
-                # Получаем регистрационный номер ККТ и фискальный признак из FNFiscalization
-                if 'FNFiscalization' in kkt_info:
-                    kkt_registration_number = kkt_info['FNFiscalization'].get('KKTRegistrationNumber')
-                    fiscal_sign = kkt_info['FNFiscalization'].get('FiscalSign')
-                
-                # Формируем check_info с реальными данными из ККТ
-                check_info = {
-                    'FDNumber': str(document_number) if document_number else None,
-                    'FNNumber': fn_serial,
-                    'FNGetSerial': fn_serial,
-                    'KKTNumber': None,  # Пока не получаем из ККТ
-                    'KKTRegistrationNumber': kkt_registration_number,
-                    'FP': str(fiscal_sign) if fiscal_sign else None
-                }
-                print(f"Получены данные ККТ: {check_info}")
-            else:
-                print(f"Ошибка получения данных ККТ: {kkt_data.get('error', 'Unknown error')}")
+            # Используем кэшированные данные для остальных параметров
+            check_info = {
+                'FDNumber': str(fr.DocumentNumber) if hasattr(fr, 'DocumentNumber') and fr.DocumentNumber else None,
+                'FNSerialNumber': KKT_CACHE['FNSerialNumber'],
+                'KKTNumber': KKT_CACHE['KKTSerialNumber'],
+                'KKTRegistrationNumber': KKT_CACHE['KKTRegistrationNumber'],
+                'FP': str(fr.FiscalSign) if hasattr(fr, 'FiscalSign') and fr.FiscalSign else None
+            }
+            
+            print(f"Используются кэшированные данные ККТ: {check_info}")
         except Exception as e:
             print(f"Ошибка получения данных ККТ: {e}")
         
@@ -456,8 +445,8 @@ async def order_pay(order, type_pay):
             status="success",
             message="Чек успешно напечатан",
             order_data=order.dict(),
-            result_code=str(fr.ResultCode),
-            result_description=fr.ResultCodeDescription,
+            result_code=str(result_code),
+            result_description=result_description,
             document_number=document_number,
             fiscal_sign=fiscal_sign
         )
@@ -676,8 +665,8 @@ def build_egais_v4_xml(order, alco_items, last_check_info=None):
     # Используем данные из ККМ, если есть
     kkt_number = last_check_info.get('KKTNumber') if last_check_info else os.getenv("KKT_NUMBER", "0000000000000000")
     kkt_registration_number = last_check_info.get('KKTRegistrationNumber') if last_check_info else os.getenv("KKT_REGISTRATION_NUMBER", "0000000000000000")
-    fn_number = last_check_info.get('FNNumber') if last_check_info else os.getenv("FN_NUMBER", "9999999999999999")
-    fn_get_serial = last_check_info.get('FNGetSerial') if last_check_info else os.getenv("FN_GET_SERIAL", "9999999999999999")
+    fn_number = last_check_info.get('FNSerialNumber') if last_check_info else os.getenv("FN_NUMBER", "9999999999999999")
+    fn_get_serial = last_check_info.get('FNSerialNumber') if last_check_info else os.getenv("FN_GET_SERIAL", "9999999999999999")
     fd_number = last_check_info.get('FDNumber') if last_check_info else "12345"
     fp = last_check_info.get('FP') if last_check_info else "1234567890"
 
@@ -730,17 +719,6 @@ async def send_egais_check(order: Order, check_info=None):
         )
         return {"message": "В заказе нет алкогольных позиций для ЕГАИС"}
     try:
-        # Используем переданные данные чека или получаем из ККТ
-        if not check_info:
-            # Если check_info не передан, используем значения по умолчанию
-            check_info = {
-                'FDNumber': "12345",
-                'FNNumber': os.getenv("FN_NUMBER", "9999999999999999"),
-                'FNGetSerial': os.getenv("FN_GET_SERIAL", "9999999999999999"),
-                'KKTNumber': os.getenv("KKT_NUMBER", "0000000000000000"),
-                'KKTRegistrationNumber': os.getenv("KKT_REGISTRATION_NUMBER", "0000000000000000"),
-                'FP': "1234567890"
-            }
         xml_data = build_egais_v4_xml(order, alco_items, last_check_info=check_info)
         ts = time.strftime('%Y%m%d_%H%M%S')
         xml_filename = f"egais_xml_{ts}.xml"
@@ -805,6 +783,82 @@ async def api_send_egais_check(order: Order):
     """
     return await send_egais_check(order)
 
+def initialize_kkt_cache():
+    """
+    Инициализировать кэш данных ККТ при старте приложения
+    """
+    global KKT_CACHE
+    try:
+        fr = win32com.client.Dispatch('Addin.DRvFR')
+        fr.Connect()
+        fr.Password = 30
+        
+        # Получаем данные фискализации ФН
+        fr.FNGetFiscalizationResult()
+        KKT_CACHE['INN'] = getattr(fr, 'INN', None)
+        KKT_CACHE['KKTRegistrationNumber'] = getattr(fr, 'KKTRegistrationNumber', None)
+        
+        # Получаем серийный номер ФН
+        fr.FNGetStatus()
+        KKT_CACHE['FNSerialNumber'] = getattr(fr, 'SerialNumber', None)
+        
+        fr.Disconnect()
+        KKT_CACHE['initialized'] = True
+        
+        print(f"Кэш ККТ инициализирован: INN={KKT_CACHE['INN']}, KKTRegNumber={KKT_CACHE['KKTRegistrationNumber']}, FNSerialNumber={KKT_CACHE['FNSerialNumber']}")
+        
+    except Exception as e:
+        print(f"Ошибка инициализации кэша ККТ: {e}")
+        KKT_CACHE['initialized'] = False
+
+def get_ecr_status(fr):
+    """
+    Получить статус ККТ (ECRStatus)
+    """
+    try:
+        fr.Password = 30
+        fr.GetECRStatus()
+        return {
+            'ECRMode': getattr(fr, 'ECRMode', None),
+            'ECRModeDescription': getattr(fr, 'ECRModeDescription', None),
+            'DocumentNumber': getattr(fr, 'DocumentNumber', None),
+            'ResultCode': fr.ResultCode,
+            'ResultCodeDescription': fr.ResultCodeDescription
+        }
+    except Exception as e:
+        return {'error': str(e)}
+
+def get_fn_expiration_time():
+    """
+    Получить срок действия ФН (FNGetExpirationTime)
+    """
+    try:
+        fr = win32com.client.Dispatch('Addin.DRvFR')
+        fr.Connect()
+        fr.Password = 30
+        
+        # Запрос срока действия ФН
+        fr.FNGetExpirationTime()
+        
+        fn_expiration = {
+            'Date': getattr(fr, 'Date', None),
+            'ResultCode': fr.ResultCode,
+            'ResultCodeDescription': fr.ResultCodeDescription
+        }
+        
+        fr.Disconnect()
+        
+        return {
+            "status": "success",
+            "fn_expiration": fn_expiration
+        }
+        
+    except Exception as e:
+        return {
+            "status": "error",
+            "error": str(e)
+        }
+
 def get_kkt_info():
     """
     Получить общие параметры ККТ включая DocumentNumber
@@ -817,15 +871,7 @@ def get_kkt_info():
         kkt_info = {}
         
         # Получаем статус ККТ
-        try:
-            fr.GetECRStatus()
-            kkt_info['ECRStatus'] = {
-                'DocumentNumber': getattr(fr, 'DocumentNumber', None),
-                'ResultCode': fr.ResultCode,
-                'ResultCodeDescription': fr.ResultCodeDescription
-            }
-        except Exception as e:
-            kkt_info['ECRStatus'] = {'error': str(e)}
+        kkt_info['ECRStatus'] = get_ecr_status(fr)
         
         # Получаем статус ФН
         try:
@@ -864,6 +910,17 @@ def get_kkt_info():
         except Exception as e:
             kkt_info['FNFiscalization'] = {'error': str(e)}
         
+        # Получаем срок действия ФН
+        try:
+            fr.FNGetExpirationTime()
+            kkt_info['FNExpiration'] = {
+                'Date': getattr(fr, 'Date', None),
+                'ResultCode': fr.ResultCode,
+                'ResultCodeDescription': fr.ResultCodeDescription
+            }
+        except Exception as e:
+            kkt_info['FNExpiration'] = {'error': str(e)}
+        
         fr.Disconnect()
         
         return {
@@ -883,6 +940,13 @@ async def api_get_kkt_info():
     API endpoint для получения общих параметров ККТ включая DocumentNumber
     """
     return get_kkt_info()
+
+@app.get("/api/v1/fn-expiration")
+async def api_get_fn_expiration():
+    """
+    API endpoint для получения срока действия ФН
+    """
+    return get_fn_expiration_time()
 
 
 

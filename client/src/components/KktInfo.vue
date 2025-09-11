@@ -72,6 +72,30 @@
         </el-row>
         
         <el-row :gutter="20" style="margin-top: 20px;">
+          <el-col :span="12">
+            <el-card shadow="never" class="info-card">
+              <template #header>
+                <h3>Срок действия ФН</h3>
+              </template>
+              <div class="info-item">
+                <span class="label">Дата истечения:</span>
+                <span class="value expiration-date" :class="getExpirationClass(kktInfo.FNExpiration?.Date)">
+                  {{ formatDate(kktInfo.FNExpiration?.Date) }}
+                </span>
+              </div>
+              <div class="info-item">
+                <span class="label">Код результата:</span>
+                <span class="value">{{ kktInfo.FNExpiration?.ResultCode || '-' }}</span>
+              </div>
+              <div class="info-item">
+                <span class="label">Описание:</span>
+                <span class="value">{{ kktInfo.FNExpiration?.ResultCodeDescription || '-' }}</span>
+              </div>
+            </el-card>
+          </el-col>
+        </el-row>
+        
+        <el-row :gutter="20" style="margin-top: 20px;">
           <el-col :span="24">
             <el-card shadow="never" class="info-card">
               <template #header>
@@ -153,6 +177,23 @@ export default {
     formatDate(dateString) {
       if (!dateString) return '-'
       return new Date(dateString).toLocaleString('ru-RU')
+    },
+    
+    getExpirationClass(expirationDate) {
+      if (!expirationDate) return ''
+      
+      const expiration = new Date(expirationDate)
+      const now = new Date()
+      const daysUntilExpiration = Math.ceil((expiration - now) / (1000 * 60 * 60 * 24))
+      
+      if (daysUntilExpiration < 0) {
+        return 'expired' // Просрочен
+      } else if (daysUntilExpiration <= 30) {
+        return 'warning' // Предупреждение (меньше 30 дней)
+      } else if (daysUntilExpiration <= 90) {
+        return 'caution' // Осторожность (меньше 90 дней)
+      }
+      return 'normal' // Нормальный срок
     }
   }
 }
@@ -224,5 +265,35 @@ export default {
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+
+.expiration-date {
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.expiration-date.expired {
+  background-color: #fef0f0;
+  color: #f56c6c;
+  border: 1px solid #fbc4c4;
+}
+
+.expiration-date.warning {
+  background-color: #fdf6ec;
+  color: #e6a23c;
+  border: 1px solid #f5dab1;
+}
+
+.expiration-date.caution {
+  background-color: #f0f9ff;
+  color: #409eff;
+  border: 1px solid #b3d8ff;
+}
+
+.expiration-date.normal {
+  background-color: #f0f9ff;
+  color: #67c23a;
+  border: 1px solid #c2e7b0;
 }
 </style>
