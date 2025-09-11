@@ -14,10 +14,7 @@ export const checkApi = {
   cardPayment: (order) => api.post('/payment/card', order),
   
   // Создание счета
-  createInvoice: (order) => api.post('/invoice', order),
-  
-  // Получение информации о последнем чеке
-  getLastCheckInfo: () => api.get('/last-check-info')
+  createInvoice: (order) => api.post('/invoice', order)
 }
 
 // API для ЕГАИС
@@ -53,7 +50,10 @@ export const printApi = {
   printZReport: (employee) => api.post('/print/zreport', employee),
   
   // Печать кухонной марки
-  printKitchenMark: (data) => api.post('/print/kitchen-mark', data)
+  printKitchenMark: (data) => api.post('/print/kitchen-mark', data),
+  
+  // Печать счета
+  printInvoice: (order) => api.post('/print/invoice', order)
 }
 
 export default api

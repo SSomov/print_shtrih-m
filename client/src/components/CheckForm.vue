@@ -9,17 +9,43 @@
       
       <el-form :model="form" label-width="120px" @submit.prevent="submitCheck">
         <el-row :gutter="20">
-          <el-col :span="12">
+          <el-col :span="8">
             <el-form-item label="Номер заказа">
               <el-input v-model="form.num" placeholder="Введите номер заказа" />
             </el-form-item>
           </el-col>
-          <el-col :span="12">
+          <el-col :span="8">
+            <el-form-item label="Тип документа">
+              <el-select v-model="form.typedoc" placeholder="Тип документа">
+                <el-option label="Чек" value="check" />
+                <el-option label="Возврат" value="return" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :span="8">
             <el-form-item label="Тип оплаты">
               <el-select v-model="paymentType" placeholder="Выберите тип оплаты">
                 <el-option label="Наличные" value="cash" />
                 <el-option label="Карта" value="card" />
               </el-select>
+            </el-form-item>
+          </el-col>
+        </el-row>
+        
+        <el-row :gutter="20">
+          <el-col :span="8">
+            <el-form-item label="Зал">
+              <el-input v-model="form.hall" placeholder="Номер зала" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="8">
+            <el-form-item label="Стол">
+              <el-input v-model="form.table" placeholder="Номер стола" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="8">
+            <el-form-item label="Официант">
+              <el-input v-model="form.waiter" placeholder="Имя официанта" />
             </el-form-item>
           </el-col>
         </el-row>
@@ -62,12 +88,12 @@
               </el-col>
               <el-col :span="4">
                 <el-form-item label="Количество">
-                  <el-input-number v-model="item.kolvo" :min="0.01" :precision="2" />
+                  <el-input-number v-model="item.kolvo" :min="0.01" :precision="2" @change="item.kolvo = String(item.kolvo)" />
                 </el-form-item>
               </el-col>
               <el-col :span="4">
                 <el-form-item label="Цена">
-                  <el-input-number v-model="item.price" :min="0" :precision="2" />
+                  <el-input-number v-model="item.price" :min="0" :precision="2" @change="item.price = String(item.price)" />
                 </el-form-item>
               </el-col>
               <el-col :span="4">
@@ -126,15 +152,20 @@ export default {
       paymentType: 'cash',
       form: {
         num: '',
+        typedoc: 'check',
+        hall: '',
+        table: '',
+        create: new Date().toLocaleString('ru-RU'),
+        waiter: '',
         employee_fio: '',
         employee_inn: '',
         employee_pos: '',
-        alldiscount: 0,
+        alldiscount: '0',
         products: [
           {
             name: '',
-            kolvo: 1,
-            price: 0,
+            kolvo: '1',
+            price: '0',
             mark: '0',
             GTIN: '',
             qr: '',
@@ -188,15 +219,20 @@ export default {
     resetForm() {
       this.form = {
         num: '',
+        typedoc: 'check',
+        hall: '',
+        table: '',
+        create: new Date().toLocaleString('ru-RU'),
+        waiter: '',
         employee_fio: '',
         employee_inn: '',
         employee_pos: '',
-        alldiscount: 0,
+        alldiscount: '0',
         products: [
           {
             name: '',
-            kolvo: 1,
-            price: 0,
+            kolvo: '1',
+            price: '0',
             mark: '0',
             GTIN: '',
             qr: '',

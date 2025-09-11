@@ -46,12 +46,12 @@
               </el-col>
               <el-col :span="4">
                 <el-form-item label="Количество">
-                  <el-input-number v-model="item.kolvo" :min="0.01" :precision="2" />
+                  <el-input-number v-model="item.kolvo" :min="0.01" :precision="2" @change="item.kolvo = String(item.kolvo)" />
                 </el-form-item>
               </el-col>
               <el-col :span="4">
                 <el-form-item label="Цена">
-                  <el-input-number v-model="item.price" :min="0" :precision="2" />
+                  <el-input-number v-model="item.price" :min="0" :precision="2" @change="item.price = String(item.price)" />
                 </el-form-item>
               </el-col>
               <el-col :span="4">
@@ -114,14 +114,20 @@ export default {
       loading: false,
       form: {
         num: '',
+        typedoc: 'check',
+        hall: '',
+        table: '',
+        create: new Date().toLocaleString('ru-RU'),
+        waiter: '',
         employee_fio: '',
         employee_inn: '',
         employee_pos: '',
+        alldiscount: '0',
         products: [
           {
             name: '',
-            kolvo: 1,
-            price: 0,
+            kolvo: '1',
+            price: '0',
             GTIN: '',
             alc_code: '',
             qr: '',
@@ -172,14 +178,20 @@ export default {
     resetForm() {
       this.form = {
         num: '',
+        typedoc: 'check',
+        hall: '',
+        table: '',
+        create: new Date().toLocaleString('ru-RU'),
+        waiter: '',
         employee_fio: '',
         employee_inn: '',
         employee_pos: '',
+        alldiscount: '0',
         products: [
           {
             name: '',
-            kolvo: 1,
-            price: 0,
+            kolvo: '1',
+            price: '0',
             GTIN: '',
             alc_code: '',
             qr: '',
