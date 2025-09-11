@@ -212,14 +212,23 @@ def save_check_result_file(prefix, content, error=None):
     """
     Сохранить результат чека в файл (резервный способ)
     """
+    import os
+    
+    # Создаем папку check если её нет
+    check_dir = "check"
+    if not os.path.exists(check_dir):
+        os.makedirs(check_dir)
+    
     ts = time.strftime('%Y%m%d_%H%M%S')
     filename = f"{prefix}_{ts}.txt"
-    with open(filename, "w", encoding="utf-8") as f:
+    filepath = os.path.join(check_dir, filename)
+    
+    with open(filepath, "w", encoding="utf-8") as f:
         f.write(f"=== {prefix.upper()} ===\n")
         if error:
             f.write(f"[ERROR]\n{error}\n")
         f.write(content)
-    return filename
+    return filepath
 
 async def save_check_result(status, message, error=None, order_data=None, result_code=None, result_description=None, document_number=None, fiscal_sign=None):
     """
@@ -721,8 +730,15 @@ async def send_egais_check(order: Order, check_info=None):
     try:
         xml_data = build_egais_v4_xml(order, alco_items, last_check_info=check_info)
         ts = time.strftime('%Y%m%d_%H%M%S')
+        
+        # Создаем папку check если её нет
+        check_dir = "check"
+        if not os.path.exists(check_dir):
+            os.makedirs(check_dir)
+        
         xml_filename = f"egais_xml_{ts}.xml"
-        with open(xml_filename, "wb") as f:
+        xml_filepath = os.path.join(check_dir, xml_filename)
+        with open(xml_filepath, "wb") as f:
             f.write(xml_data)
         if not egais_send:
             await save_egais_result(
@@ -731,13 +747,14 @@ async def send_egais_check(order: Order, check_info=None):
                 xml_data=xml_data.decode('utf-8'),
                 xml_file=xml_filename
             )
-            return {"message": "EGAIS_SEND is not true, XML сохранён в файл", "xml_file": xml_filename}
+            return {"message": "EGAIS_SEND is not true, XML сохранён в файл", "xml_file": xml_filepath}
         files = {'xml_file': ('ticket.xml', xml_data, 'application/xml')}
         response = requests.post(f"{egais_host}/opt/in", files=files, timeout=10)
         response.raise_for_status()
         # Сохраняем ответ в файл
         filename = f"egais_response_{ts}.txt"
-        with open(filename, "w", encoding="utf-8") as f:
+        filepath = os.path.join(check_dir, filename)
+        with open(filepath, "w", encoding="utf-8") as f:
             f.write("=== ОТВЕТ ЕГАИС ===\n")
             f.write(response.text)
         # Попытка найти QR-код в ответе (ищем тег <QRCode> или поле qr_code)
@@ -762,10 +779,10 @@ async def send_egais_check(order: Order, check_info=None):
             xml_data=xml_data.decode('utf-8'),
             response_data=response.text,
             qr_code=qr_code,
-            xml_file=xml_filename,
-            saved_file=filename
+            xml_file=xml_filepath,
+            saved_file=filepath
         )
-        return {"message": "Чек v4 отправлен в ЕГАИС", "egais_response": response.text, "qr_code": qr_code, "saved_file": filename, "xml_file": xml_filename}
+        return {"message": "Чек v4 отправлен в ЕГАИС", "egais_response": response.text, "qr_code": qr_code, "saved_file": filepath, "xml_file": xml_filepath}
     except Exception as e:
         # Сохраняем ошибку в БД
         await save_egais_result(
