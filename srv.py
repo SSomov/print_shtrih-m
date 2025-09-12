@@ -811,18 +811,23 @@ def initialize_kkt_cache():
         fr.Password = 30
         
         # Получаем данные фискализации ФН
-        fr.FNGetFiscalizationResult()
+        fr.GetECRStatus()
         KKT_CACHE['INN'] = getattr(fr, 'INN', None)
+        fr.ReadSerialNumber()
+        KKT_CACHE['KKTSerialNumber'] = getattr(fr, 'SerialNumber', None)
+        
+        # Получаем серийный номер ККТ и регистрационный номер
+        fr.FNGetFiscalizationResult()
         KKT_CACHE['KKTRegistrationNumber'] = getattr(fr, 'KKTRegistrationNumber', None)
         
         # Получаем серийный номер ФН
-        fr.FNGetStatus()
+        fr.FNGetSerial()
         KKT_CACHE['FNSerialNumber'] = getattr(fr, 'SerialNumber', None)
         
         fr.Disconnect()
         KKT_CACHE['initialized'] = True
         
-        print(f"Кэш ККТ инициализирован: INN={KKT_CACHE['INN']}, KKTRegNumber={KKT_CACHE['KKTRegistrationNumber']}, FNSerialNumber={KKT_CACHE['FNSerialNumber']}")
+        print(f"Кэш ККТ инициализирован: INN={KKT_CACHE['INN']}, KKTRegNumber={KKT_CACHE['KKTRegistrationNumber']}, KKTSerialNumber={KKT_CACHE['KKTSerialNumber']}, FNSerialNumber={KKT_CACHE['FNSerialNumber']}")
         
     except Exception as e:
         print(f"Ошибка инициализации кэша ККТ: {e}")
