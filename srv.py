@@ -707,7 +707,7 @@ def validate_bottle_fields(price, barcode, ean=None, volume=None):
     
     # Валидация цены (формат: [-]?\d+\.\d{0,2})
     if not re.match(r'^[-]?\d+\.\d{0,2}$', str(price)):
-        raise ValueError(f"Цена должна быть в формате [-]?\d+\.\d{0,2}: {price}")
+        raise ValueError(f"Цена должна быть в формате [-]?\\d+\\.\\d{{0,2}}: {price}")
     
     # Валидация баркода (формат: \d\d[a-zA-Z0-9]{21}\d[0-1]\d[0-3]\d{10}[a-zA-Z0-9]{31})
     if not re.match(r'^\d\d[a-zA-Z0-9]{21}\d[0-1]\d[0-3]\d{10}[a-zA-Z0-9]{31}$', str(barcode)):
@@ -725,7 +725,8 @@ def validate_bottle_fields(price, barcode, ean=None, volume=None):
 
 def build_egais_cheque_xml(order, alco_items, last_check_info=None):
     """
-    Построение XML чека согласно схеме ChequeV3 для отправки в УТМ ЕГАИС
+    Построение XML чека согласно схеме WB_DOC_SINGLE_01 для отправки в УТМ ЕГАИС
+    Использует простую структуру как в примере egais_cheque_example.xml
     """
     # Получаем данные организации из переменных окружения или кэша ККТ
     kassa = last_check_info.get('KKTNumber') if last_check_info else os.getenv("KASSA", "45664")
@@ -751,66 +752,79 @@ def build_egais_cheque_xml(order, alco_items, last_check_info=None):
     # Определяем тип чека
     cheque_type = "Продажа" if order.typedoc != "return" else "Возврат"
     
+    # Получаем FSRAR_ID из переменных окружения
+    fsrar_id = os.getenv("FSRAR_ID", "020000347275")
+    
     # Логируем используемые параметры
     print(f"EGАИС ChequeV3 XML параметры: смена={shift}, время={iso_datetime}, касса={kassa}, тип={cheque_type}")
     
-    # Создаем корневой элемент ChequeV3 с namespace
-    cheque = ET.Element("ChequeV3")
-    cheque.set("xmlns", "http://fsrar.ru/WEGAIS/ChequeV3")
-    cheque.set("xmlns:c", "http://fsrar.ru/WEGAIS/Common")
-    cheque.set("xmlns:pref", "http://fsrar.ru/WEGAIS/ProductRef_v2")
+    # Создаем корневой элемент Documents с правильными namespace
+    documents = ET.Element("ns:Documents")
+    documents.set("Version", "1.0")
+    documents.set("xmlns:xsi", "http://www.w3.org/2001/XMLSchema-instance")
+    documents.set("xmlns:ns", "http://fsrar.ru/WEGAIS/WB_DOC_SINGLE_01")
+    documents.set("xmlns:ck", "http://fsrar.ru/WEGAIS/ChequeV3")
+    documents.set("xmlns:oref", "http://fsrar.ru/WEGAIS/ClientRef_v2")
+    documents.set("xmlns:pref", "http://fsrar.ru/WEGAIS/ProductRef_v2")
     
-    # Добавляем Header
-    header = ET.SubElement(cheque, "Header")
+    # Добавляем Owner
+    owner = ET.SubElement(documents, "ns:Owner")
+    fsrar_id_elem = ET.SubElement(owner, "ns:FSRAR_ID")
+    fsrar_id_elem.text = fsrar_id
+    
+    # Добавляем Document
+    document = ET.SubElement(documents, "ns:Document")
+    
+    # Добавляем ChequeV3
+    cheque = ET.SubElement(document, "ns:ChequeV3")
+    
+    # Добавляем Header (только для продаж, как в примере)
+    header = ET.SubElement(cheque, "ck:Header")
     
     # Дата и время
-    date_elem = ET.SubElement(header, "Date")
+    date_elem = ET.SubElement(header, "ck:Date")
     date_elem.text = iso_datetime
     
     # Касса
-    kassa_elem = ET.SubElement(header, "Kassa")
+    kassa_elem = ET.SubElement(header, "ck:Kassa")
     kassa_elem.text = str(kassa)
     
     # Смена
-    shift_elem = ET.SubElement(header, "Shift")
+    shift_elem = ET.SubElement(header, "ck:Shift")
     shift_elem.text = str(shift)
     
     # Номер чека
-    number_elem = ET.SubElement(header, "Number")
+    number_elem = ET.SubElement(header, "ck:Number")
     number_elem.text = str(number)
     
     # Тип чека
-    type_elem = ET.SubElement(header, "Type")
+    type_elem = ET.SubElement(header, "ck:Type")
     type_elem.text = cheque_type
     
     # Content
-    content = ET.SubElement(cheque, "Content")
+    content = ET.SubElement(cheque, "ck:Content")
     
-    # Добавляем элементы Bottle для каждой алкогольной позиции
+    # Добавляем элементы Bottle для каждой алкогольной позиции (только как в примере)
     for item in alco_items:
-        bottle = ET.SubElement(content, "Bottle")
+        bottle = ET.SubElement(content, "ck:Bottle")
         
         # Баркод (обязательный элемент)
         barcode = item.egais_mark_code or item.alc_code
-        if not barcode:
-            # Генерируем валидный баркод согласно схеме
-            timestamp = int(time.time())
-            barcode = f"16N00001CJPFO4450G71NSP20905004004797o{timestamp:010d}abcdefghijklmnopqrstuvwxyz12345"
         
-        barcode_elem = ET.SubElement(bottle, "Barcode")
+        barcode_elem = ET.SubElement(bottle, "ck:Barcode")
         barcode_elem.text = barcode
         
         # EAN код (обязательный элемент)
-        ean = str(item.GTIN) if item.GTIN else "177736216338"  # Значение по умолчанию
-        ean_elem = ET.SubElement(bottle, "EAN")
+        ean = str(item.GTIN)
+        ean_elem = ET.SubElement(bottle, "ck:EAN")
         ean_elem.text = ean
         
         # Цена (обязательный элемент)
         price = f"{float(item.price):.2f}"
-        price_elem = ET.SubElement(bottle, "Price")
+        price_elem = ET.SubElement(bottle, "ck:Price")
         price_elem.text = price
     
-    xml_bytes = ET.tostring(cheque, encoding='utf-8', xml_declaration=True)
+    xml_bytes = ET.tostring(documents, encoding='utf-8', xml_declaration=True)
     return xml_bytes
 
 def build_egais_v4_xml(order, alco_items, last_check_info=None):
