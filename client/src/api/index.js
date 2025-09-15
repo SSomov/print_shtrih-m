@@ -20,7 +20,14 @@ export const checkApi = {
 // API для ЕГАИС
 export const egaisApi = {
   // Отправка чека в ЕГАИС
-  sendCheck: (order) => api.post('/send-egais-check', order)
+  sendCheck: (order) => api.post('/send-egais-check', order),
+  
+  // Отправка XML файла в ЕГАИС
+  sendXmlFile: (formData) => api.post('/send-egais-xml', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data'
+    }
+  })
 }
 
 // API для логов
@@ -38,7 +45,10 @@ export const logsApi = {
   getKktInfo: () => api.get('/kkt-info'),
   
   // Получение срока действия ФН
-  getFnExpiration: () => api.get('/fn-expiration')
+  getFnExpiration: () => api.get('/fn-expiration'),
+  
+  // Получение параметров текущей смены ФН
+  getFnSessionParams: () => api.get('/fn-session-params')
 }
 
 // API для печати

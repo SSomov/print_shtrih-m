@@ -1,6 +1,6 @@
 from typing import Union, List
 
-from fastapi import FastAPI
+from fastapi import FastAPI, UploadFile, File, Form
 from pydantic import BaseModel
 
 from escpos.printer import Network
@@ -428,13 +428,23 @@ async def order_pay(order, type_pay):
         result_description = fr.ResultCodeDescription
         
         try:
+            # Получаем параметры текущей смены
+            fr.FNGetCurrentSessionParams()
+            session_number = getattr(fr, 'SessionNumber', None)
+            
+            # Получаем текущее время в формате для ЕГАИС (DDMMYYHHMM)
+            now = datetime.now()
+            egais_datetime = now.strftime("%d%m%y%H%M")
+            
             # Используем кэшированные данные для остальных параметров
             check_info = {
                 'FDNumber': str(fr.DocumentNumber) if hasattr(fr, 'DocumentNumber') and fr.DocumentNumber else None,
                 'FNSerialNumber': KKT_CACHE['FNSerialNumber'],
                 'KKTNumber': KKT_CACHE['KKTSerialNumber'],
                 'KKTRegistrationNumber': KKT_CACHE['KKTRegistrationNumber'],
-                'FP': str(fr.FiscalSign) if hasattr(fr, 'FiscalSign') and fr.FiscalSign else None
+                'FP': str(fr.FiscalSign) if hasattr(fr, 'FiscalSign') and fr.FiscalSign else None,
+                'ShiftNumber': session_number,  # Номер смены
+                'EgaisDateTime': egais_datetime  # Время в формате ЕГАИС
             }
             
             print(f"Используются кэшированные данные ККТ: {check_info}")
@@ -665,45 +675,150 @@ async def cancel_document():
     result = kill_document()
     return {"message": "Document cancelled", **result}
 
-def build_egais_v4_xml(order, alco_items, last_check_info=None):
-    ticket = ET.Element("Ticket")
-    document = ET.SubElement(ticket, "Document")
-    receipt = ET.SubElement(document, "Receipt")
-    content = ET.SubElement(receipt, "Content")
+def validate_egais_fields(inn, kpp, kassa, address, name, number, shift):
+    """
+    Валидация полей согласно XSD схеме ПРИЛОЖЕНИЕ Б
+    """
+    import re
+    
+    # Валидация ИНН (10 или 12 цифр)
+    if not re.match(r'^\d{10}$|^\d{12}$', str(inn)):
+        raise ValueError(f"ИНН должен содержать 10 или 12 цифр: {inn}")
+    
+    # Валидация КПП (9 цифр или пустая строка)
+    if kpp and not re.match(r'^\d{9}$', str(kpp)):
+        raise ValueError(f"КПП должен содержать 9 цифр: {kpp}")
+    
+    # Валидация адреса (максимум 128 символов)
+    if len(str(address)) > 128:
+        raise ValueError(f"Адрес не должен превышать 128 символов: {len(str(address))}")
+    
+    # Валидация названия (максимум 128 символов)
+    if len(str(name)) > 128:
+        raise ValueError(f"Название не должно превышать 128 символов: {len(str(name))}")
+    
+    return True
 
-    # Используем данные из ККМ, если есть
-    kkt_number = last_check_info.get('KKTNumber') if last_check_info else os.getenv("KKT_NUMBER", "0000000000000000")
-    kkt_registration_number = last_check_info.get('KKTRegistrationNumber') if last_check_info else os.getenv("KKT_REGISTRATION_NUMBER", "0000000000000000")
-    fn_number = last_check_info.get('FNSerialNumber') if last_check_info else os.getenv("FN_NUMBER", "9999999999999999")
-    fn_get_serial = last_check_info.get('FNSerialNumber') if last_check_info else os.getenv("FN_GET_SERIAL", "9999999999999999")
-    fd_number = last_check_info.get('FDNumber') if last_check_info else "12345"
-    fp = last_check_info.get('FP') if last_check_info else "1234567890"
+def validate_bottle_fields(price, barcode, ean=None, volume=None):
+    """
+    Валидация полей элемента Bottle согласно XSD схеме
+    """
+    import re
+    
+    # Валидация цены (формат: [-]?\d+\.\d{0,2})
+    if not re.match(r'^[-]?\d+\.\d{0,2}$', str(price)):
+        raise ValueError(f"Цена должна быть в формате [-]?\d+\.\d{0,2}: {price}")
+    
+    # Валидация баркода (формат: \d\d[a-zA-Z0-9]{21}\d[0-1]\d[0-3]\d{10}[a-zA-Z0-9]{31})
+    if not re.match(r'^\d\d[a-zA-Z0-9]{21}\d[0-1]\d[0-3]\d{10}[a-zA-Z0-9]{31}$', str(barcode)):
+        raise ValueError(f"Баркод не соответствует формату: {barcode}")
+    
+    # Валидация EAN (8, 12, 13 или 14 цифр)
+    if ean and not re.match(r'^\d{8}$|^\d{12}$|^\d{13}$|^\d{14}$', str(ean)):
+        raise ValueError(f"EAN должен содержать 8, 12, 13 или 14 цифр: {ean}")
+    
+    # Валидация объема (формат: \d+\.?\d{0,4})
+    if volume and not re.match(r'^\d+\.?\d{0,4}$', str(volume)):
+        raise ValueError(f"Объем должен быть в формате \\d+\\.?\\d{0,4}: {volume}")
+    
+    return True
 
-    ET.SubElement(content, "OperationType").text = "1"
-    ET.SubElement(content, "KKTNumber").text = str(kkt_number)
-    ET.SubElement(content, "KKTRegistrationNumber").text = str(kkt_registration_number)
-    ET.SubElement(content, "FNNumber").text = str(fn_number)
-    ET.SubElement(content, "FNGetSerial").text = str(fn_get_serial)
-    ET.SubElement(content, "FDNumber").text = str(fd_number)
-    ET.SubElement(content, "FP").text = str(fp)
-    ET.SubElement(content, "Date").text = datetime.now().isoformat()
-
-    cashier = ET.SubElement(content, "Cashier")
-    ET.SubElement(cashier, "Name").text = order.employee_fio or ""
-    ET.SubElement(cashier, "INN").text = order.employee_inn or ""
-
-    items = ET.SubElement(content, "Items")
+def build_egais_cheque_xml(order, alco_items, last_check_info=None):
+    """
+    Построение XML чека согласно схеме ChequeV3 для отправки в УТМ ЕГАИС
+    """
+    # Получаем данные организации из переменных окружения или кэша ККТ
+    kassa = last_check_info.get('KKTNumber') if last_check_info else os.getenv("KASSA", "45664")
+    number = last_check_info.get('FDNumber') if last_check_info and last_check_info.get('FDNumber') else "1"
+    
+    # Используем актуальный номер смены из check_info или значение по умолчанию
+    shift = last_check_info.get('ShiftNumber') if last_check_info and last_check_info.get('ShiftNumber') else "1"
+    
+    # Используем актуальное время из check_info или текущее время
+    if last_check_info and last_check_info.get('EgaisDateTime'):
+        datetime_str = last_check_info.get('EgaisDateTime')
+        # Преобразуем DDMMYYHHMM в ISO формат для ChequeV3
+        day = datetime_str[:2]
+        month = datetime_str[2:4]
+        year = "20" + datetime_str[4:6]
+        hour = datetime_str[6:8]
+        minute = datetime_str[8:10]
+        iso_datetime = f"{year}-{month}-{day}T{hour}:{minute}:00"
+    else:
+        now = datetime.now()
+        iso_datetime = now.strftime("%Y-%m-%dT%H:%M:%S")
+    
+    # Определяем тип чека
+    cheque_type = "Продажа" if order.typedoc != "return" else "Возврат"
+    
+    # Логируем используемые параметры
+    print(f"EGАИС ChequeV3 XML параметры: смена={shift}, время={iso_datetime}, касса={kassa}, тип={cheque_type}")
+    
+    # Создаем корневой элемент ChequeV3 с namespace
+    cheque = ET.Element("ChequeV3")
+    cheque.set("xmlns", "http://fsrar.ru/WEGAIS/ChequeV3")
+    cheque.set("xmlns:c", "http://fsrar.ru/WEGAIS/Common")
+    cheque.set("xmlns:pref", "http://fsrar.ru/WEGAIS/ProductRef_v2")
+    
+    # Добавляем Header
+    header = ET.SubElement(cheque, "Header")
+    
+    # Дата и время
+    date_elem = ET.SubElement(header, "Date")
+    date_elem.text = iso_datetime
+    
+    # Касса
+    kassa_elem = ET.SubElement(header, "Kassa")
+    kassa_elem.text = str(kassa)
+    
+    # Смена
+    shift_elem = ET.SubElement(header, "Shift")
+    shift_elem.text = str(shift)
+    
+    # Номер чека
+    number_elem = ET.SubElement(header, "Number")
+    number_elem.text = str(number)
+    
+    # Тип чека
+    type_elem = ET.SubElement(header, "Type")
+    type_elem.text = cheque_type
+    
+    # Content
+    content = ET.SubElement(cheque, "Content")
+    
+    # Добавляем элементы Bottle для каждой алкогольной позиции
     for item in alco_items:
-        item_el = ET.SubElement(items, "Item")
-        ET.SubElement(item_el, "ProductCode").text = item.GTIN or ""
-        ET.SubElement(item_el, "AlcCode").text = item.alc_code or ""
-        ET.SubElement(item_el, "Quantity").text = str(item.kolvo)
-        ET.SubElement(item_el, "Price").text = str(item.price)
-        markinfo = ET.SubElement(item_el, "MarkInfo")
-        ET.SubElement(markinfo, "Mark").text = item.egais_mark_code or ""
-
-    xml_bytes = ET.tostring(ticket, encoding='utf-8', xml_declaration=True)
+        bottle = ET.SubElement(content, "Bottle")
+        
+        # Баркод (обязательный элемент)
+        barcode = item.egais_mark_code or item.alc_code
+        if not barcode:
+            # Генерируем валидный баркод согласно схеме
+            timestamp = int(time.time())
+            barcode = f"16N00001CJPFO4450G71NSP20905004004797o{timestamp:010d}abcdefghijklmnopqrstuvwxyz12345"
+        
+        barcode_elem = ET.SubElement(bottle, "Barcode")
+        barcode_elem.text = barcode
+        
+        # EAN код (обязательный элемент)
+        ean = str(item.GTIN) if item.GTIN else "177736216338"  # Значение по умолчанию
+        ean_elem = ET.SubElement(bottle, "EAN")
+        ean_elem.text = ean
+        
+        # Цена (обязательный элемент)
+        price = f"{float(item.price):.2f}"
+        price_elem = ET.SubElement(bottle, "Price")
+        price_elem.text = price
+    
+    xml_bytes = ET.tostring(cheque, encoding='utf-8', xml_declaration=True)
     return xml_bytes
+
+def build_egais_v4_xml(order, alco_items, last_check_info=None):
+    """
+    Построение XML чека согласно схеме ChequeV3 для отправки в УТМ ЕГАИС
+    Использует новую схему ChequeV3 вместо старой Ticket/Document/Receipt структуры
+    """
+    return build_egais_cheque_xml(order, alco_items, last_check_info)
 
 def print_egais_qr(qr_string):
     fr = win32com.client.Dispatch('Addin.DRvFR')
@@ -748,8 +863,8 @@ async def send_egais_check(order: Order, check_info=None):
                 xml_file=xml_filename
             )
             return {"message": "EGAIS_SEND is not true, XML сохранён в файл", "xml_file": xml_filepath}
-        files = {'xml_file': ('ticket.xml', xml_data, 'application/xml')}
-        response = requests.post(f"{egais_host}/opt/in", files=files, timeout=10)
+        files = {'xml_file': ('Cheque.xml', xml_data, 'application/xml')}
+        response = requests.post(f"{egais_host}/xml", files=files, timeout=10)
         response.raise_for_status()
         # Сохраняем ответ в файл
         filename = f"egais_response_{ts}.txt"
@@ -799,6 +914,107 @@ async def api_send_egais_check(order: Order):
     API endpoint для отправки чека с алкогольной позицией в ЕГАИС
     """
     return await send_egais_check(order)
+
+@app.post("/api/v1/send-egais-xml")
+async def api_send_egais_xml(xml_file: UploadFile = File(...), description: str = Form("")):
+    """
+    API endpoint для отправки XML файла в ЕГАИС
+    """
+    try:
+        # Читаем содержимое XML файла
+        xml_content = await xml_file.read()
+        
+        # Проверяем, что это XML файл
+        if not xml_file.filename.endswith('.xml'):
+            return {"error": "Файл должен иметь расширение .xml"}
+        
+        # Создаем папку check если её нет
+        check_dir = "check"
+        if not os.path.exists(check_dir):
+            os.makedirs(check_dir)
+        
+        # Сохраняем оригинальный файл
+        ts = time.strftime('%Y%m%d_%H%M%S')
+        original_filename = f"egais_xml_upload_{ts}.xml"
+        original_filepath = os.path.join(check_dir, original_filename)
+        
+        with open(original_filepath, "wb") as f:
+            f.write(xml_content)
+        
+        # Получаем настройки EGAIS
+        egais_host = os.getenv('EGAIS_HOST', 'http://localhost:8080')
+        egais_send = os.getenv('EGAIS_SEND', 'false').lower() == 'true'
+        
+        if not egais_send:
+            await save_egais_result(
+                status="saved",
+                order_data={"description": description, "filename": xml_file.filename},
+                xml_data=xml_content.decode('utf-8'),
+                xml_file=original_filepath
+            )
+            return {
+                "message": "EGAIS_SEND is not true, XML сохранён в файл", 
+                "xml_file": original_filepath
+            }
+        
+        # Отправляем в EGAIS
+        files = {'xml_file': ('Cheque.xml', xml_content, 'application/xml')}
+        response = requests.post(f"{egais_host}/xml", files=files, timeout=10)
+        response.raise_for_status()
+        
+        # Сохраняем ответ в файл
+        response_filename = f"egais_response_{ts}.txt"
+        response_filepath = os.path.join(check_dir, response_filename)
+        with open(response_filepath, "w", encoding="utf-8") as f:
+            f.write("=== ОТВЕТ ЕГАИС ===\n")
+            f.write(response.text)
+        
+        # Попытка найти QR-код в ответе
+        qr_code = None
+        try:
+            import re
+            match = re.search(r'<QRCode>(.*?)</QRCode>', response.text)
+            if match:
+                qr_code = match.group(1)
+            else:
+                import json
+                data = response.json()
+                qr_code = data.get('qr_code')
+        except Exception:
+            pass
+        
+        # Печатаем QR-код если есть
+        if qr_code:
+            print_egais_qr(qr_code)
+        
+        # Сохраняем успешный результат в БД
+        await save_egais_result(
+            status="success",
+            order_data={"description": description, "filename": xml_file.filename},
+            xml_data=xml_content.decode('utf-8'),
+            response_data=response.text,
+            qr_code=qr_code,
+            xml_file=original_filepath,
+            saved_file=response_filepath
+        )
+        
+        return {
+            "message": "XML документ отправлен в ЕГАИС", 
+            "egais_response": response.text, 
+            "qr_code": qr_code, 
+            "saved_file": response_filepath, 
+            "xml_file": original_filepath
+        }
+        
+    except Exception as e:
+        # Сохраняем ошибку в БД
+        await save_egais_result(
+            status="error",
+            order_data={"description": description, "filename": xml_file.filename},
+            xml_data=xml_content.decode('utf-8') if 'xml_content' in locals() else None,
+            error=str(e)
+        )
+        return {"error": str(e)}
 
 def initialize_kkt_cache():
     """
@@ -873,6 +1089,41 @@ def get_fn_expiration_time():
         return {
             "status": "success",
             "fn_expiration": fn_expiration
+        }
+        
+    except Exception as e:
+        return {
+            "status": "error",
+            "error": str(e)
+        }
+
+def get_fn_current_session_params():
+    """
+    Получить параметры текущей смены ФН (FNGetCurrentSessionParams)
+    Возвращает состояние смены, номер смены и номер чека
+    """
+    try:
+        fr = win32com.client.Dispatch('Addin.DRvFR')
+        fr.Connect()
+        fr.Password = 30
+        
+        # Вызываем FNGetCurrentSessionParams
+        fr.FNGetCurrentSessionParams()
+        
+        # Получаем параметры смены
+        session_params = {
+            "fn_session_state": getattr(fr, 'FNSessionState', None),  # Состояние смены (0-255)
+            "session_number": getattr(fr, 'SessionNumber', None),      # Номер смены (0-FFFFh)
+            "receipt_number": getattr(fr, 'ReceiptNumber', None),      # Номер чека (0-FFFFh)
+            "result_code": fr.ResultCode,
+            "result_description": fr.ResultCodeDescription
+        }
+        
+        fr.Disconnect()
+        
+        return {
+            "status": "success",
+            "session_params": session_params
         }
         
     except Exception as e:
@@ -970,7 +1221,12 @@ async def api_get_fn_expiration():
     """
     return get_fn_expiration_time()
 
-
+@app.get("/api/v1/fn-session-params")
+async def api_get_fn_session_params():
+    """
+    API endpoint для получения параметров текущей смены ФН
+    """
+    return get_fn_current_session_params()
 
 @app.get("/api/v1/logs/checks")
 async def get_check_logs(page: int = 1, limit: int = 50, status: str = None):

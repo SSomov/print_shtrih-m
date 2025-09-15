@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ChequeV3 xmlns="http://fsrar.ru/WEGAIS/ChequeV3"
+          xmlns:c="http://fsrar.ru/WEGAIS/Common"
+          xmlns:pref="http://fsrar.ru/WEGAIS/ProductRef_v2">
+  <Header>
+    <Date>2025-09-12T10:19:00</Date>
+    <Kassa>0522810008012872</Kassa>
+    <Shift>8304</Shift>
+    <Number>300</Number>
+    <Type>Продажа</Type>
+  </Header>
+  <Content>
+    <Bottle>
+      <Barcode>1873298622547801250013I53GGTQ5VR6LZ5HW2IX53O7NM3KIM6UEVMGWJZXZH3ZYWLL5UCNGCBSAY5FHUWXHLH3WWAMV7TEUPZRHIAE5FHV3WMBY456AVVNP5FBSW32CWGFX43YOHC6CP6QKLBXQ</Barcode>
+      <EAN>4603514002407</EAN>
+      <Price>1500.00</Price>
+    </Bottle>
+  </Content>
+</ChequeV3>

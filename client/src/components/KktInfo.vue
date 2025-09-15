@@ -136,6 +136,39 @@
             </el-card>
           </el-col>
         </el-row>
+        
+        <!-- Параметры текущей смены -->
+        <el-row :gutter="20" v-if="sessionParams">
+          <el-col :span="24">
+            <el-card shadow="never" class="info-card">
+              <template #header>
+                <h3>Параметры текущей смены</h3>
+              </template>
+              <el-row :gutter="20">
+                <el-col :span="8">
+                  <div class="info-item">
+                    <span class="label">Состояние смены:</span>
+                    <el-tag :type="getSessionStateType(sessionParams.fn_session_state)">
+                      {{ getSessionStateText(sessionParams.fn_session_state) }}
+                    </el-tag>
+                  </div>
+                </el-col>
+                <el-col :span="8">
+                  <div class="info-item">
+                    <span class="label">Номер смены:</span>
+                    <span class="value">{{ sessionParams.session_number || '-' }}</span>
+                  </div>
+                </el-col>
+                <el-col :span="8">
+                  <div class="info-item">
+                    <span class="label">Номер чека:</span>
+                    <span class="value">{{ sessionParams.receipt_number || '-' }}</span>
+                  </div>
+                </el-col>
+              </el-row>
+            </el-card>
+          </el-col>
+        </el-row>
       </div>
     </el-card>
   </div>
@@ -150,7 +183,8 @@ export default {
     return {
       loading: false,
       error: null,
-      kktInfo: null
+      kktInfo: null,
+      sessionParams: null
     }
   },
   mounted() {
@@ -161,12 +195,24 @@ export default {
       this.loading = true
       this.error = null
       try {
+        // Загружаем основную информацию о ККТ
         const result = await logsApi.getKktInfo()
         if (result.data.status === 'success') {
           this.kktInfo = result.data.kkt_info
         } else {
           this.error = result.data.error || 'Ошибка получения данных ККТ'
         }
+        
+        // Загружаем параметры текущей смены
+        try {
+          const sessionResult = await logsApi.getFnSessionParams()
+          if (sessionResult.data.status === 'success') {
+            this.sessionParams = sessionResult.data.session_params
+          }
+        } catch (sessionError) {
+          console.warn('Не удалось загрузить параметры смены:', sessionError.message)
+        }
+        
       } catch (error) {
         this.error = 'Ошибка: ' + error.message
       } finally {
@@ -194,6 +240,28 @@ export default {
         return 'caution' // Осторожность (меньше 90 дней)
       }
       return 'normal' // Нормальный срок
+    },
+    
+    getSessionStateText(state) {
+      if (state === null || state === undefined) return 'Неизвестно'
+      
+      switch (state) {
+        case 0: return 'Смена закрыта'
+        case 1: return 'Смена открыта'
+        case 2: return 'Смена истекла'
+        default: return `Состояние ${state}`
+      }
+    },
+    
+    getSessionStateType(state) {
+      if (state === null || state === undefined) return 'info'
+      
+      switch (state) {
+        case 0: return 'info'      // Смена закрыта
+        case 1: return 'success'   // Смена открыта
+        case 2: return 'warning'   // Смена истекла
+        default: return 'info'
+      }
     }
   }
 }
