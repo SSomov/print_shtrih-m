@@ -98,6 +98,8 @@ class Item(BaseModel):
     discount: str = None
     sdiscount: str = None
     total: str = None
+    EAN: str = None  # Штрихкод товара
+    alco: str = None  # Алкогольный товар (аналогично mark)
     # ЕГАИС поля
     alc_code: str = None  # Алкокод продукции
     egais_mark_code: str = None  # Код марки для ЕГАИС
@@ -471,7 +473,7 @@ async def order_pay(order, type_pay):
         )
         
         # Проверяем, есть ли алкогольные позиции для отправки в ЕГАИС
-        alco_items = [item for item in order.products if item.mark == '1' or item.alc_code or item.egais_mark_code]
+        alco_items = [item for item in order.products if item.mark == '1' or item.alco == '1' or item.alc_code or item.egais_mark_code]
         if alco_items:
             try:
                 # Если не удалось получить данные из ККТ, не отправляем в ЕГАИС
@@ -815,7 +817,7 @@ def build_egais_cheque_xml(order, alco_items, last_check_info=None):
         barcode_elem.text = barcode
         
         # EAN код (обязательный элемент)
-        ean = str(item.GTIN)
+        ean = str(item.EAN)
         ean_elem = ET.SubElement(bottle, "ck:EAN")
         ean_elem.text = ean
         
@@ -878,7 +880,8 @@ async def send_egais_check(order: Order, check_info=None):
             )
             return {"message": "EGAIS_SEND is not true, XML сохранён в файл", "xml_file": xml_filepath}
         files = {'xml_file': ('Cheque.xml', xml_data, 'application/xml')}
-        response = requests.post(f"{egais_host}/xml", files=files, timeout=10)
+        params = {'type': 'ChequeV3'}
+        response = requests.post(f"{egais_host}/xml", files=files, params=params, timeout=10)
         response.raise_for_status()
         # Сохраняем ответ в файл
         filename = f"egais_response_{ts}.txt"
@@ -973,7 +976,8 @@ async def api_send_egais_xml(xml_file: UploadFile = File(...), description: str 
         
         # Отправляем в EGAIS
         files = {'xml_file': ('Cheque.xml', xml_content, 'application/xml')}
-        response = requests.post(f"{egais_host}/xml", files=files, timeout=10)
+        params = {'type': 'ChequeV3'}
+        response = requests.post(f"{egais_host}/xml", files=files, params=params, timeout=10)
         response.raise_for_status()
         
         # Сохраняем ответ в файл
