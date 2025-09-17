@@ -46,6 +46,7 @@ class CheckLog(Model):
     filename = fields.CharField(max_length=255, null=True)
     document_number = fields.CharField(max_length=50, null=True)  # Номер чека
     fiscal_sign = fields.CharField(max_length=50, null=True)  # Фискальный признак
+    legacynum = fields.CharField(max_length=100, null=True)  # Order.num
 
     class Meta:
         table = "check_logs"
@@ -62,6 +63,7 @@ class EgaisLog(Model):
     error = fields.TextField(null=True)
     xml_file = fields.CharField(max_length=255, null=True)
     saved_file = fields.CharField(max_length=255, null=True)
+    legacynum = fields.CharField(max_length=100, null=True)  # Order.num
 
     class Meta:
         table = "egais_logs"
@@ -233,7 +235,7 @@ def save_check_result_file(prefix, content, error=None):
         f.write(content)
     return filepath
 
-async def save_check_result(status, message, error=None, order_data=None, result_code=None, result_description=None, document_number=None, fiscal_sign=None):
+async def save_check_result(status, message, error=None, order_data=None, result_code=None, result_description=None, document_number=None, fiscal_sign=None, legacynum=None):
     """
     Сохранить результат чека в БД, при ошибке - в файл
     """
@@ -253,6 +255,8 @@ async def save_check_result(status, message, error=None, order_data=None, result
             content += f"DocumentNumber: {document_number}\n"
         if fiscal_sign:
             content += f"FiscalSign: {fiscal_sign}\n"
+        if legacynum:
+            content += f"legacynum: {legacynum}\n"
         save_check_result_file("check", content, error)
         return False
     
@@ -265,7 +269,8 @@ async def save_check_result(status, message, error=None, order_data=None, result
             result_code=result_code,
             result_description=result_description,
             document_number=document_number,
-            fiscal_sign=fiscal_sign
+            fiscal_sign=fiscal_sign,
+            legacynum=legacynum
         )
         return True
     except Exception as e:
@@ -284,10 +289,12 @@ async def save_check_result(status, message, error=None, order_data=None, result
             content += f"DocumentNumber: {document_number}\n"
         if fiscal_sign:
             content += f"FiscalSign: {fiscal_sign}\n"
+        if legacynum:
+            content += f"legacynum: {legacynum}\n"
         save_check_result_file("check", content, error)
         return False
 
-async def save_egais_result(status, order_data=None, xml_data=None, response_data=None, qr_code=None, sign=None, error=None, xml_file=None, saved_file=None):
+async def save_egais_result(status, order_data=None, xml_data=None, response_data=None, qr_code=None, sign=None, error=None, xml_file=None, saved_file=None, legacynum=None):
     """
     Сохранить результат ЕГАИС в БД, при ошибке - в файл
     """
@@ -307,6 +314,8 @@ async def save_egais_result(status, order_data=None, xml_data=None, response_dat
             content += f"Sign: {sign}\n"
         if error:
             content += f"Error: {error}\n"
+        if legacynum:
+            content += f"legacynum: {legacynum}\n"
         save_check_result_file("egais", content, error)
         return False
     
@@ -320,7 +329,8 @@ async def save_egais_result(status, order_data=None, xml_data=None, response_dat
             sign=sign,
             error=error,
             xml_file=xml_file,
-            saved_file=saved_file
+            saved_file=saved_file,
+            legacynum=legacynum
         )
         return True
     except Exception as e:
@@ -339,6 +349,8 @@ async def save_egais_result(status, order_data=None, xml_data=None, response_dat
             content += f"Sign: {sign}\n"
         if error:
             content += f"Error: {error}\n"
+        if legacynum:
+            content += f"legacynum: {legacynum}\n"
         save_check_result_file("egais", content, error)
         return False
 
@@ -399,7 +411,8 @@ async def order_pay(order, type_pay):
                     status="error",
                     message="Ошибка подготовки ККТ к работе",
                     error=error_msg,
-                    order_data=order.dict()
+                    order_data=order.dict(),
+                    legacynum=order.num
                 )
                 return {"status": "error", "message": "Ошибка подготовки ККТ к работе", "error": error_msg}
         fr.Summ1Enabled = False
@@ -522,7 +535,8 @@ async def order_pay(order, type_pay):
             result_code=str(result_code),
             result_description=result_description,
             document_number=document_number,
-            fiscal_sign=fiscal_sign
+            fiscal_sign=fiscal_sign,
+            legacynum=order.num
         )
         
         # Проверяем, есть ли алкогольные позиции для отправки в ЕГАИС
@@ -547,7 +561,8 @@ async def order_pay(order, type_pay):
             error=str(e),
             order_data=order.dict(),
             document_number=None,
-            fiscal_sign=None
+            fiscal_sign=None,
+            legacynum=order.num
         )
         return {"status": "error", "message": "Ошибка при печати чека", "error": str(e)}
 
@@ -934,7 +949,8 @@ async def send_egais_check(order: Order, check_info=None):
         await save_egais_result(
             status="error",
             order_data=order.dict(),
-            error="В заказе нет алкогольных позиций для ЕГАИС"
+            error="В заказе нет алкогольных позиций для ЕГАИС",
+            legacynum=order.num
         )
         return {"message": "В заказе нет алкогольных позиций для ЕГАИС"}
     try:
@@ -955,7 +971,8 @@ async def send_egais_check(order: Order, check_info=None):
                 status="saved",
                 order_data=order.dict(),
                 xml_data=xml_data.decode('utf-8'),
-                xml_file=xml_filename
+                xml_file=xml_filename,
+                legacynum=order.num
             )
             return {"message": "EGAIS_SEND is not true, XML сохранён в файл", "xml_file": xml_filepath}
         files = {'xml_file': ('Cheque.xml', xml_data, 'application/xml')}
@@ -998,7 +1015,8 @@ async def send_egais_check(order: Order, check_info=None):
             qr_code=qr_url,
             sign=sign,
             xml_file=xml_filepath,
-            saved_file=filepath
+            saved_file=filepath,
+            legacynum=order.num
         )
         return {"message": "Чек v4 отправлен в ЕГАИС", "egais_response": response.text, "qr_code": qr_url, "sign": sign, "saved_file": filepath, "xml_file": xml_filepath}
     except Exception as e:
@@ -1007,7 +1025,8 @@ async def send_egais_check(order: Order, check_info=None):
             status="error",
             order_data=order.dict(),
             xml_data=xml_data.decode('utf-8') if 'xml_data' in locals() else None,
-            error=str(e)
+            error=str(e),
+            legacynum=order.num
         )
         return {"error": str(e)}
 
@@ -1053,7 +1072,8 @@ async def api_send_egais_xml(xml_file: UploadFile = File(...), description: str 
                 status="saved",
                 order_data={"description": description, "filename": xml_file.filename},
                 xml_data=xml_content.decode('utf-8'),
-                xml_file=original_filepath
+                xml_file=original_filepath,
+                legacynum=None
             )
             return {
                 "message": "EGAIS_SEND is not true, XML сохранён в файл", 
@@ -1105,7 +1125,8 @@ async def api_send_egais_xml(xml_file: UploadFile = File(...), description: str 
             qr_code=qr_url,
             sign=sign,
             xml_file=original_filepath,
-            saved_file=response_filepath
+            saved_file=response_filepath,
+            legacynum=None
         )
         
         return {
@@ -1123,7 +1144,8 @@ async def api_send_egais_xml(xml_file: UploadFile = File(...), description: str 
             status="error",
             order_data={"description": description, "filename": xml_file.filename},
             xml_data=xml_content.decode('utf-8') if 'xml_content' in locals() else None,
-            error=str(e)
+            error=str(e),
+            legacynum=None
         )
         return {"error": str(e)}
 
