@@ -88,9 +88,15 @@
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column prop="qr_code" label="QR код" width="200">
+            <el-table-column prop="qr_code" label="QR код" width="150">
               <template #default="scope">
-                <span v-if="scope.row.qr_code" class="qr-code">{{ scope.row.qr_code.substring(0, 20) }}...</span>
+                <span v-if="scope.row.qr_code" class="qr-code">{{ scope.row.qr_code.substring(0, 15) }}...</span>
+                <span v-else>-</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="sign" label="Подпись" width="120">
+              <template #default="scope">
+                <span v-if="scope.row.sign" class="sign-code">{{ scope.row.sign.substring(0, 12) }}...</span>
                 <span v-else>-</span>
               </template>
             </el-table-column>
@@ -259,6 +265,15 @@ export default {
 .qr-code {
   font-family: monospace;
   font-size: 12px;
+}
+
+.sign-code {
+  font-family: monospace;
+  font-size: 11px;
+  color: #e6a23c;
+  background: #fdf6ec;
+  padding: 2px 6px;
+  border-radius: 3px;
 }
 
 .fiscal-sign {

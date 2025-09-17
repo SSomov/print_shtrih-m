@@ -57,6 +57,7 @@ class EgaisLog(Model):
     xml_data = fields.TextField(null=True)
     response_data = fields.TextField(null=True)
     qr_code = fields.TextField(null=True)
+    sign = fields.TextField(null=True)  # Подпись из ответа ЕГАИС
     status = fields.CharField(max_length=20)
     error = fields.TextField(null=True)
     xml_file = fields.CharField(max_length=255, null=True)
@@ -161,11 +162,11 @@ def get_ecr_mode(fr: win32com.client.CDispatch):
     Функция запроса режима кассы.
     
     :param fr: объект драйвера кассы (CDispatch)
-    :return: Кортеж (int, str) — режим кассы и его описание
+    :return: Кортеж (int, str, int) — режим кассы, его описание и расширенный режим
     """
     fr.Password = 30
     fr.GetECRStatus()
-    return fr.ECRMode, fr.ECRModeDescription
+    return fr.ECRMode, fr.ECRModeDescription, fr.ECRAdvancedMode
 
 def send_tag_1021_1203(fr, fio, inn) -> None:
     """
@@ -286,7 +287,7 @@ async def save_check_result(status, message, error=None, order_data=None, result
         save_check_result_file("check", content, error)
         return False
 
-async def save_egais_result(status, order_data=None, xml_data=None, response_data=None, qr_code=None, error=None, xml_file=None, saved_file=None):
+async def save_egais_result(status, order_data=None, xml_data=None, response_data=None, qr_code=None, sign=None, error=None, xml_file=None, saved_file=None):
     """
     Сохранить результат ЕГАИС в БД, при ошибке - в файл
     """
@@ -302,6 +303,8 @@ async def save_egais_result(status, order_data=None, xml_data=None, response_dat
             content += f"Response: {response_data}\n"
         if qr_code:
             content += f"QR Code: {qr_code}\n"
+        if sign:
+            content += f"Sign: {sign}\n"
         if error:
             content += f"Error: {error}\n"
         save_check_result_file("egais", content, error)
@@ -314,6 +317,7 @@ async def save_egais_result(status, order_data=None, xml_data=None, response_dat
             xml_data=xml_data,
             response_data=response_data,
             qr_code=qr_code,
+            sign=sign,
             error=error,
             xml_file=xml_file,
             saved_file=saved_file
@@ -331,6 +335,8 @@ async def save_egais_result(status, order_data=None, xml_data=None, response_dat
             content += f"Response: {response_data}\n"
         if qr_code:
             content += f"QR Code: {qr_code}\n"
+        if sign:
+            content += f"Sign: {sign}\n"
         if error:
             content += f"Error: {error}\n"
         save_check_result_file("egais", content, error)
@@ -347,8 +353,55 @@ async def order_pay(order, type_pay):
             discount = float(order.alldiscount) / 100    
         fr = win32com.client.Dispatch('Addin.DRvFR')
         fr.Connect()
-        ecr_mode, ecr_description = get_ecr_mode(fr)
-        print(f"ECR Mode: {ecr_mode}, Description: {ecr_description}")
+        ecr_mode, ecr_description, ecr_advanced_mode = get_ecr_mode(fr)
+        print(f"ECR Mode: {ecr_mode}, Description: {ecr_description}, Advanced Mode: {ecr_advanced_mode}")
+        
+        # Проверяем режим ККТ и закрываем открытый документ если необходимо
+        # Режимы ККТ: 2 - готов к работе, 8 - открытый документ возврата, и другие
+        if ecr_mode != 2:  # Режим 2 - готов к работе
+            print(f"ККТ не готов к работе (режим {ecr_mode}: {ecr_description}, расширенный режим: {ecr_advanced_mode})")
+            
+            if ecr_advanced_mode == 3:
+                # Расширенный режим 3 - нужно продолжить печать
+                print("Расширенный режим 3 - выполняем ContinuePrint")
+                try:
+                    fr.ContinuePrint()
+                    print(f"ContinuePrint выполнен: {fr.ResultCode}, {fr.ResultCodeDescription}")
+                except Exception as e:
+                    print(f"Ошибка при выполнении ContinuePrint: {e}")
+            else:
+                # Для других режимов - закрываем документ
+                print("Закрываем открытый документ")
+                fr.Disconnect()  # Отключаемся перед вызовом kill_document
+                
+                try:
+                    kill_result = kill_document()  # Закрываем открытый документ
+                    print(f"Результат закрытия документа: {kill_result}")
+                except Exception as e:
+                    print(f"Ошибка при закрытии документа: {e}")
+                
+                # Переподключаемся после закрытия документа
+                fr = win32com.client.Dispatch('Addin.DRvFR')
+                fr.Connect()
+            
+            # Проверяем режим ККТ после операции (ContinuePrint или kill_document)
+            ecr_mode, ecr_description, ecr_advanced_mode = get_ecr_mode(fr)
+            print(f"После операции восстановления - ECR Mode: {ecr_mode}, Description: {ecr_description}, Advanced Mode: {ecr_advanced_mode}")
+            
+            # Проверяем, что ККТ теперь готов к работе
+            if ecr_mode != 2:
+                error_msg = f"ККТ все еще не готов к работе после операции восстановления (режим {ecr_mode}: {ecr_description}, расширенный режим: {ecr_advanced_mode})"
+                print(error_msg)
+                fr.Disconnect()
+                
+                # Сохраняем ошибку в БД
+                await save_check_result(
+                    status="error",
+                    message="Ошибка подготовки ККТ к работе",
+                    error=error_msg,
+                    order_data=order.dict()
+                )
+                return {"status": "error", "message": "Ошибка подготовки ККТ к работе", "error": error_msg}
         fr.Summ1Enabled = False
         fr.TaxValueEnabled = False
         for item in order.products:
@@ -836,12 +889,38 @@ def build_egais_v4_xml(order, alco_items, last_check_info=None):
     """
     return build_egais_cheque_xml(order, alco_items, last_check_info)
 
-def print_egais_qr(qr_string):
+def print_egais_qr(qr_url, sign=None):
+    """
+    Печать QR-кода ЕГАИС с URL и подписью
+    qr_url: URL для QR-кода
+    sign: подпись для печати под QR-кодом в формате 4 символа пробел
+    """
     fr = win32com.client.Dispatch('Addin.DRvFR')
     fr.Connect()
-    fr.Barcode = qr_string
-    fr.PrintBarcode()
-    fr.Disconnect()
+    
+    try:
+        # Печатаем QR-код размером 35x35 (размер 4 в драйвере обычно означает ~35x35mm)
+        fr.Barcode = qr_url
+        fr.BarcodeType = 18  # QR Code
+        fr.BarcodeSize = 4   # Размер QR-кода (35x35)
+        fr.PrintBarcode()
+        
+        # Печатаем URL под QR-кодом
+        fr.StringForPrinting = qr_url
+        fr.PrintString()
+        
+        # Печатаем подпись в формате 4 символа + пробел
+        if sign:
+            formatted_sign = ""
+            for i in range(0, len(sign), 4):
+                chunk = sign[i:i+4]
+                formatted_sign += chunk + " "
+            
+            fr.StringForPrinting = formatted_sign.strip()
+            fr.PrintString()
+            
+    finally:
+        fr.Disconnect()
 
 async def send_egais_check(order: Order, check_info=None):
     """
@@ -889,32 +968,39 @@ async def send_egais_check(order: Order, check_info=None):
         with open(filepath, "w", encoding="utf-8") as f:
             f.write("=== ОТВЕТ ЕГАИС ===\n")
             f.write(response.text)
-        # Попытка найти QR-код в ответе (ищем тег <QRCode> или поле qr_code)
-        qr_code = None
+        # Извлекаем URL и подпись из ответа ЕГАИС типа A
+        qr_url = None
+        sign = None
         try:
-            import re
-            match = re.search(r'<QRCode>(.*?)</QRCode>', response.text)
-            if match:
-                qr_code = match.group(1)
-            else:
-                import json
-                data = response.json()
-                qr_code = data.get('qr_code')
+            import xml.etree.ElementTree as ET
+            root = ET.fromstring(response.text)
+            
+            # Ищем элемент <url>
+            url_elem = root.find('url')
+            if url_elem is not None:
+                qr_url = url_elem.text
+            
+            # Ищем элемент <sign>
+            sign_elem = root.find('sign')
+            if sign_elem is not None:
+                sign = sign_elem.text
         except Exception:
             pass
-        if qr_code:
-            print_egais_qr(qr_code)
+        
+        if qr_url:
+            print_egais_qr(qr_url, sign)
         # Сохраняем успешный результат в БД
         await save_egais_result(
             status="success",
             order_data=order.dict(),
             xml_data=xml_data.decode('utf-8'),
             response_data=response.text,
-            qr_code=qr_code,
+            qr_code=qr_url,
+            sign=sign,
             xml_file=xml_filepath,
             saved_file=filepath
         )
-        return {"message": "Чек v4 отправлен в ЕГАИС", "egais_response": response.text, "qr_code": qr_code, "saved_file": filepath, "xml_file": xml_filepath}
+        return {"message": "Чек v4 отправлен в ЕГАИС", "egais_response": response.text, "qr_code": qr_url, "sign": sign, "saved_file": filepath, "xml_file": xml_filepath}
     except Exception as e:
         # Сохраняем ошибку в БД
         await save_egais_result(
@@ -987,23 +1073,28 @@ async def api_send_egais_xml(xml_file: UploadFile = File(...), description: str 
             f.write("=== ОТВЕТ ЕГАИС ===\n")
             f.write(response.text)
         
-        # Попытка найти QR-код в ответе
-        qr_code = None
+        # Извлекаем URL и подпись из ответа ЕГАИС типа A
+        qr_url = None
+        sign = None
         try:
-            import re
-            match = re.search(r'<QRCode>(.*?)</QRCode>', response.text)
-            if match:
-                qr_code = match.group(1)
-            else:
-                import json
-                data = response.json()
-                qr_code = data.get('qr_code')
+            import xml.etree.ElementTree as ET
+            root = ET.fromstring(response.text)
+            
+            # Ищем элемент <url>
+            url_elem = root.find('url')
+            if url_elem is not None:
+                qr_url = url_elem.text
+            
+            # Ищем элемент <sign>
+            sign_elem = root.find('sign')
+            if sign_elem is not None:
+                sign = sign_elem.text
         except Exception:
             pass
         
         # Печатаем QR-код если есть
-        if qr_code:
-            print_egais_qr(qr_code)
+        if qr_url:
+            print_egais_qr(qr_url, sign)
         
         # Сохраняем успешный результат в БД
         await save_egais_result(
@@ -1011,7 +1102,8 @@ async def api_send_egais_xml(xml_file: UploadFile = File(...), description: str 
             order_data={"description": description, "filename": xml_file.filename},
             xml_data=xml_content.decode('utf-8'),
             response_data=response.text,
-            qr_code=qr_code,
+            qr_code=qr_url,
+            sign=sign,
             xml_file=original_filepath,
             saved_file=response_filepath
         )
@@ -1019,7 +1111,8 @@ async def api_send_egais_xml(xml_file: UploadFile = File(...), description: str 
         return {
             "message": "XML документ отправлен в ЕГАИС", 
             "egais_response": response.text, 
-            "qr_code": qr_code, 
+            "qr_code": qr_url, 
+            "sign": sign,
             "saved_file": response_filepath, 
             "xml_file": original_filepath
         }

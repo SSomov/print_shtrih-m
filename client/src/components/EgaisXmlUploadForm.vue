@@ -91,6 +91,11 @@
           <el-tag type="success">{{ result.qr_code }}</el-tag>
         </div>
         
+        <div v-if="result.sign" class="result-sign">
+          <strong>Подпись:</strong> 
+          <el-tag type="info">{{ result.sign.substring(0, 32) }}...</el-tag>
+        </div>
+        
         <div v-if="result.egais_response" class="result-response">
           <el-collapse>
             <el-collapse-item title="Ответ ЕГАИС" name="response">
@@ -181,6 +186,7 @@ export default {
             xml_file: response.data.xml_file,
             saved_file: response.data.saved_file,
             qr_code: response.data.qr_code,
+            sign: response.data.sign,
             egais_response: response.data.egais_response
           }
           this.$message.success('XML документ успешно отправлен в EGAIS')
@@ -241,6 +247,10 @@ export default {
 .result-message,
 .result-file,
 .result-qr {
+  margin-bottom: 10px;
+}
+
+.result-sign {
   margin-bottom: 10px;
 }
 
