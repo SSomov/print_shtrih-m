@@ -500,9 +500,9 @@ async def order_pay(order, type_pay):
             fr.FNGetCurrentSessionParams()
             session_number = getattr(fr, 'SessionNumber', None)
             
-            # Получаем текущее время в формате для ЕГАИС (DDMMYYHHMM)
+            # Получаем текущее время
             now = datetime.now()
-            egais_datetime = now.strftime("%d%m%y%H%M")
+            check_iso_datetime = now.strftime("%Y-%m-%dT%H:%M:%S")
             
             # Используем кэшированные данные для остальных параметров
             check_info = {
@@ -512,7 +512,7 @@ async def order_pay(order, type_pay):
                 'KKTRegistrationNumber': KKT_CACHE['KKTRegistrationNumber'],
                 'FP': str(fr.FiscalSign) if hasattr(fr, 'FiscalSign') and fr.FiscalSign else None,
                 'ShiftNumber': session_number,  # Номер смены
-                'EgaisDateTime': egais_datetime  # Время в формате ЕГАИС
+                'FDDateTime': check_iso_datetime  # Время в формате ЕГАИС
             }
             
             print(f"Используются кэшированные данные ККТ: {check_info}")
@@ -540,7 +540,7 @@ async def order_pay(order, type_pay):
         )
         
         # Проверяем, есть ли алкогольные позиции для отправки в ЕГАИС
-        alco_items = [item for item in order.products if item.mark == '1' or item.alco == '1' or item.alc_code or item.egais_mark_code]
+        alco_items = [item for item in order.products if item.alco == '1' or item.alc_code]
         if alco_items:
             try:
                 # Если не удалось получить данные из ККТ, не отправляем в ЕГАИС
@@ -806,15 +806,8 @@ def build_egais_cheque_xml(order, alco_items, last_check_info=None):
     shift = last_check_info.get('ShiftNumber') if last_check_info and last_check_info.get('ShiftNumber') else "1"
     
     # Используем актуальное время из check_info или текущее время
-    if last_check_info and last_check_info.get('EgaisDateTime'):
-        datetime_str = last_check_info.get('EgaisDateTime')
-        # Преобразуем DDMMYYHHMM в ISO формат для ChequeV3
-        day = datetime_str[:2]
-        month = datetime_str[2:4]
-        year = "20" + datetime_str[4:6]
-        hour = datetime_str[6:8]
-        minute = datetime_str[8:10]
-        iso_datetime = f"{year}-{month}-{day}T{hour}:{minute}:00"
+    if last_check_info and last_check_info.get('FDDateTime'):
+        iso_datetime = last_check_info.get('FDDateTime')
     else:
         now = datetime.now()
         iso_datetime = now.strftime("%Y-%m-%dT%H:%M:%S")
@@ -914,11 +907,10 @@ def print_egais_qr(qr_url, sign=None):
     fr.Connect()
     
     try:
-        # Печатаем QR-код размером 35x35 (размер 4 в драйвере обычно означает ~35x35mm)
+        # Печатаем QR-код (размер по умолчанию)
         fr.Barcode = qr_url
-        fr.BarcodeType = 18  # QR Code
-        fr.BarcodeSize = 4   # Размер QR-кода (35x35)
-        fr.PrintBarcode()
+        fr.BarcodeType = 3  # QR Code
+        fr.LoadAndPrint2DBarcode()
         
         # Печатаем URL под QR-кодом
         fr.StringForPrinting = qr_url
@@ -944,7 +936,7 @@ async def send_egais_check(order: Order, check_info=None):
     """
     egais_host = os.getenv('EGAIS_HOST', 'http://localhost:8080')
     egais_send = os.getenv('EGAIS_SEND', 'false').lower() == 'true'
-    alco_items = [item for item in order.products if item.mark == '1' or item.alc_code or item.egais_mark_code]
+    alco_items = [item for item in order.products if item.alco == '1' or item.alc_code]
     if not alco_items:
         await save_egais_result(
             status="error",
@@ -1018,7 +1010,7 @@ async def send_egais_check(order: Order, check_info=None):
             saved_file=filepath,
             legacynum=order.num
         )
-        return {"message": "Чек v4 отправлен в ЕГАИС", "egais_response": response.text, "qr_code": qr_url, "sign": sign, "saved_file": filepath, "xml_file": xml_filepath}
+        return {"message": "Чек v3 отправлен в ЕГАИС", "egais_response": response.text, "qr_code": qr_url, "sign": sign, "saved_file": filepath, "xml_file": xml_filepath}
     except Exception as e:
         # Сохраняем ошибку в БД
         await save_egais_result(
