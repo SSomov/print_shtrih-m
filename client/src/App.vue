@@ -7,6 +7,7 @@
           <el-menu-item index="checks">Чеки</el-menu-item>
           <el-menu-item index="egais">ЕГАИС</el-menu-item>
           <el-menu-item index="egais-xml">ЕГАИС XML</el-menu-item>
+          <el-menu-item index="products">Товары</el-menu-item>
           <el-menu-item index="kkt">ККТ</el-menu-item>
           <el-menu-item index="logs">Логи</el-menu-item>
           <el-menu-item index="stats">Статистика</el-menu-item>
@@ -17,6 +18,7 @@
         <CheckForm v-if="activeTab === 'checks'" @check-created="handleCheckCreated" />
         <EgaisForm v-if="activeTab === 'egais'" @egais-sent="handleEgaisSent" />
         <EgaisXmlUploadForm v-if="activeTab === 'egais-xml'" />
+        <ProductsView v-if="activeTab === 'products'" />
         <KktInfo v-if="activeTab === 'kkt'" />
         <LogsView v-if="activeTab === 'logs'" />
         <StatsView v-if="activeTab === 'stats'" />
@@ -29,6 +31,7 @@
 import CheckForm from './components/CheckForm.vue'
 import EgaisForm from './components/EgaisForm.vue'
 import EgaisXmlUploadForm from './components/EgaisXmlUploadForm.vue'
+import ProductsView from './components/ProductsView.vue'
 import KktInfo from './components/KktInfo.vue'
 import LogsView from './components/LogsView.vue'
 import StatsView from './components/StatsView.vue'
@@ -39,6 +42,7 @@ export default {
     CheckForm,
     EgaisForm,
     EgaisXmlUploadForm,
+    ProductsView,
     KktInfo,
     LogsView,
     StatsView

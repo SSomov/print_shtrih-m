@@ -6,7 +6,18 @@ from pydantic import BaseModel
 from escpos.printer import Network
 
 from datetime import datetime
-import win32com.client
+try:
+    import win32com.client
+    WIN32_AVAILABLE = True
+except ImportError:
+    WIN32_AVAILABLE = False
+    print("win32com недоступен - функции ККТ отключены")
+    # Создаем заглушку для win32com
+    class MockWin32Com:
+        class client:
+            class CDispatch:
+                pass
+    win32com = MockWin32Com()
 import argparse
 import json
 
@@ -68,6 +79,53 @@ class EgaisLog(Model):
     class Meta:
         table = "egais_logs"
 
+class Category(Model):
+    id = fields.IntField(pk=True)
+    name = fields.CharField(max_length=100, unique=True)
+    description = fields.TextField(null=True)
+    is_active = fields.BooleanField(default=True)
+    created_at = fields.DatetimeField(auto_now_add=True)
+    updated_at = fields.DatetimeField(auto_now=True)
+
+    class Meta:
+        table = "categories"
+
+class Product(Model):
+    id = fields.IntField(pk=True)
+    name = fields.CharField(max_length=255)
+    description = fields.TextField(null=True)
+    category = fields.ForeignKeyField('models.Category', related_name='products', on_delete=fields.CASCADE)
+    
+    # Основные поля товара
+    price = fields.DecimalField(max_digits=10, decimal_places=2)
+    barcode = fields.CharField(max_length=50, null=True)  # EAN
+    article = fields.CharField(max_length=50, null=True)  # Артикул
+    unit = fields.CharField(max_length=20, default="шт")  # Единица измерения
+    
+    # Скидки и налоги
+    max_discount = fields.DecimalField(max_digits=5, decimal_places=2, default=100)  # Максимальная скидка в %
+    tax_rate = fields.DecimalField(max_digits=5, decimal_places=2, default=20)  # НДС в %
+    
+    # Алкогольные товары
+    is_alcohol = fields.BooleanField(default=False)  # alco
+    is_marked = fields.BooleanField(default=False)  # mark - маркированный товар
+    is_draught = fields.BooleanField(default=False)  # draught - разливное
+    is_bottled = fields.BooleanField(default=False)  # bottled - бутылочное
+    
+    # ЕГАИС поля
+    alc_code = fields.CharField(max_length=100, null=True)  # Алкокод продукции
+    egais_mark_code = fields.CharField(max_length=255, null=True)  # Код марки для ЕГАИС
+    egais_id = fields.CharField(max_length=100, null=True)  # Идентификатор ЕГАИС
+    gtin = fields.CharField(max_length=50, null=True)  # GTIN для маркированных товаров
+    
+    # Статус
+    is_active = fields.BooleanField(default=True)
+    created_at = fields.DatetimeField(auto_now_add=True)
+    updated_at = fields.DatetimeField(auto_now=True)
+
+    class Meta:
+        table = "products"
+
 # Инициализация Tortoise ORM
 async def init_db():
     try:
@@ -82,6 +140,77 @@ async def init_db():
         print(f"Ошибка подключения к PostgreSQL: {e}")
         print("Будет использоваться файловое логирование")
         return False
+
+async def create_default_categories():
+    """Создать базовые категории товаров если их нет"""
+    try:
+        # Проверяем, есть ли уже категории
+        count = await Category.all().count()
+        if count > 0:
+            print(f"Категории уже существуют: {count}")
+            return
+        
+        # Создаем базовые категории
+        categories = [
+            {'name': 'Напитки', 'description': 'Безалкогольные и алкогольные напитки'},
+            {'name': 'Закуски', 'description': 'Холодные и горячие закуски'},
+            {'name': 'Основные блюда', 'description': 'Горячие основные блюда'},
+            {'name': 'Десерты', 'description': 'Сладкие блюда и десерты'},
+            {'name': 'Алкоголь', 'description': 'Алкогольные напитки'},
+            {'name': 'Пиво', 'description': 'Пивные напитки'}
+        ]
+        
+        for cat_data in categories:
+            category = await Category.create(**cat_data)
+            print(f"Создана категория: {category.name}")
+            
+        # Создаем примеры товаров
+        await create_sample_products()
+        
+    except Exception as e:
+        print(f"Ошибка создания базовых категорий: {e}")
+
+async def create_sample_products():
+    """Создать примеры товаров"""
+    try:
+        # Получаем категории
+        categories = {}
+        for cat in await Category.all():
+            categories[cat.name] = cat
+        
+        # Примеры товаров
+        products = [
+            # Напитки
+            {'name': 'Кока-кола 0.33л', 'description': 'Газированный напиток', 'category': 'Напитки', 
+             'price': 120.0, 'barcode': '4607050690012', 'article': 'COCA_033'},
+            {'name': 'Сок яблочный 0.2л', 'description': 'Натуральный яблочный сок', 'category': 'Напитки', 
+             'price': 80.0, 'barcode': '4607050690029', 'article': 'JUICE_APPLE'},
+            
+            # Закуски
+            {'name': 'Картофель фри', 'description': 'Жареный картофель фри', 'category': 'Закуски', 
+             'price': 180.0, 'article': 'FRIES_001'},
+            {'name': 'Куриные крылышки', 'description': 'Острые куриные крылышки', 'category': 'Закуски', 
+             'price': 320.0, 'article': 'WINGS_001'},
+            
+            # Алкоголь
+            {'name': 'Водка Premium 0.5л', 'description': 'Премиальная водка', 'category': 'Алкоголь', 
+             'price': 1200.0, 'barcode': '4607001234567', 'article': 'VODKA_PREM', 
+             'is_alcohol': True, 'is_marked': True, 'is_bottled': True, 'max_discount': 0},
+            {'name': 'Пиво светлое 0.5л', 'description': 'Светлое пиво разливное', 'category': 'Пиво', 
+             'price': 180.0, 'barcode': '4607001234574', 'article': 'BEER_LIGHT', 'unit': 'л',
+             'is_alcohol': True, 'is_draught': True}
+        ]
+        
+        for prod_data in products:
+            category_name = prod_data.pop('category')
+            category = categories.get(category_name)
+            if category:
+                prod_data['category'] = category
+                product = await Product.create(**prod_data)
+                print(f"Создан товар: {product.name}")
+                
+    except Exception as e:
+        print(f"Ошибка создания примеров товаров: {e}")
 
 class Item(BaseModel):
     description: str = None
@@ -147,6 +276,10 @@ db_connected = False
 async def startup_event():
     global db_connected
     db_connected = await init_db()
+    
+    if db_connected:
+        # Создаем базовые категории если их нет
+        await create_default_categories()
     
     # Инициализируем кэш данных ККТ
     initialize_kkt_cache()
@@ -1447,5 +1580,353 @@ async def get_logs_stats():
             "checks": check_stats,
             "egais": egais_stats
         }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+# ========== СПРАВОЧНИКИ ==========
+
+# Категории товаров
+@app.get("/api/v1/categories")
+async def get_categories():
+    """Получить список всех категорий"""
+    global db_connected
+    if not db_connected:
+        return {"status": "error", "message": "База данных не подключена"}
+    
+    try:
+        categories = await Category.filter(is_active=True).order_by('name')
+        return {
+            "status": "success",
+            "data": [
+                {
+                    "id": cat.id,
+                    "name": cat.name,
+                    "description": cat.description,
+                    "is_active": cat.is_active,
+                    "created_at": cat.created_at.isoformat() if cat.created_at else None,
+                    "updated_at": cat.updated_at.isoformat() if cat.updated_at else None
+                }
+                for cat in categories
+            ]
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+@app.post("/api/v1/categories")
+async def create_category(name: str = Form(...), description: str = Form(None)):
+    """Создать новую категорию"""
+    global db_connected
+    if not db_connected:
+        return {"status": "error", "message": "База данных не подключена"}
+    
+    try:
+        category = await Category.create(name=name, description=description)
+        return {
+            "status": "success",
+            "data": {
+                "id": category.id,
+                "name": category.name,
+                "description": category.description,
+                "is_active": category.is_active
+            }
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+@app.put("/api/v1/categories/{category_id}")
+async def update_category(category_id: int, name: str = Form(...), description: str = Form(None)):
+    """Обновить категорию"""
+    global db_connected
+    if not db_connected:
+        return {"status": "error", "message": "База данных не подключена"}
+    
+    try:
+        category = await Category.get_or_none(id=category_id)
+        if not category:
+            return {"status": "error", "message": "Категория не найдена"}
+        
+        category.name = name
+        category.description = description
+        await category.save()
+        
+        return {
+            "status": "success",
+            "data": {
+                "id": category.id,
+                "name": category.name,
+                "description": category.description,
+                "is_active": category.is_active
+            }
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+@app.delete("/api/v1/categories/{category_id}")
+async def delete_category(category_id: int):
+    """Удалить категорию (мягкое удаление)"""
+    global db_connected
+    if not db_connected:
+        return {"status": "error", "message": "База данных не подключена"}
+    
+    try:
+        category = await Category.get_or_none(id=category_id)
+        if not category:
+            return {"status": "error", "message": "Категория не найдена"}
+        
+        # Проверяем, есть ли товары в этой категории
+        products_count = await Product.filter(category=category, is_active=True).count()
+        if products_count > 0:
+            return {"status": "error", "message": f"Нельзя удалить категорию. В ней {products_count} товаров"}
+        
+        category.is_active = False
+        await category.save()
+        
+        return {"status": "success", "message": "Категория удалена"}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+# Товары
+@app.get("/api/v1/products")
+async def get_products(category_id: int = None, page: int = 1, limit: int = 50):
+    """Получить список товаров с пагинацией"""
+    global db_connected
+    if not db_connected:
+        return {"status": "error", "message": "База данных не подключена"}
+    
+    try:
+        offset = (page - 1) * limit
+        query = Product.filter(is_active=True).select_related('category')
+        
+        if category_id:
+            query = query.filter(category_id=category_id)
+        
+        total = await query.count()
+        products = await query.offset(offset).limit(limit).order_by('name')
+        
+        return {
+            "status": "success",
+            "data": [
+                {
+                    "id": prod.id,
+                    "name": prod.name,
+                    "description": prod.description,
+                    "category": {
+                        "id": prod.category.id,
+                        "name": prod.category.name
+                    },
+                    "price": float(prod.price),
+                    "barcode": prod.barcode,
+                    "article": prod.article,
+                    "unit": prod.unit,
+                    "max_discount": float(prod.max_discount),
+                    "tax_rate": float(prod.tax_rate),
+                    "is_alcohol": prod.is_alcohol,
+                    "is_marked": prod.is_marked,
+                    "is_draught": prod.is_draught,
+                    "is_bottled": prod.is_bottled,
+                    "alc_code": prod.alc_code,
+                    "egais_mark_code": prod.egais_mark_code,
+                    "egais_id": prod.egais_id,
+                    "gtin": prod.gtin,
+                    "is_active": prod.is_active,
+                    "created_at": prod.created_at.isoformat() if prod.created_at else None,
+                    "updated_at": prod.updated_at.isoformat() if prod.updated_at else None
+                }
+                for prod in products
+            ],
+            "pagination": {
+                "page": page,
+                "limit": limit,
+                "total": total,
+                "pages": (total + limit - 1) // limit
+            }
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+@app.get("/api/v1/products/{product_id}")
+async def get_product(product_id: int):
+    """Получить товар по ID"""
+    global db_connected
+    if not db_connected:
+        return {"status": "error", "message": "База данных не подключена"}
+    
+    try:
+        product = await Product.get_or_none(id=product_id, is_active=True).select_related('category')
+        if not product:
+            return {"status": "error", "message": "Товар не найден"}
+        
+        return {
+            "status": "success",
+            "data": {
+                "id": product.id,
+                "name": product.name,
+                "description": product.description,
+                "category": {
+                    "id": product.category.id,
+                    "name": product.category.name
+                },
+                "price": float(product.price),
+                "barcode": product.barcode,
+                "article": product.article,
+                "unit": product.unit,
+                "max_discount": float(product.max_discount),
+                "tax_rate": float(product.tax_rate),
+                "is_alcohol": product.is_alcohol,
+                "is_marked": product.is_marked,
+                "is_draught": product.is_draught,
+                "is_bottled": product.is_bottled,
+                "alc_code": product.alc_code,
+                "egais_mark_code": product.egais_mark_code,
+                "egais_id": product.egais_id,
+                "gtin": product.gtin,
+                "is_active": product.is_active
+            }
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+class ProductCreateRequest(BaseModel):
+    name: str
+    description: str = None
+    category_id: int
+    price: float
+    barcode: str = None
+    article: str = None
+    unit: str = "шт"
+    max_discount: float = 100
+    tax_rate: float = 20
+    is_alcohol: bool = False
+    is_marked: bool = False
+    is_draught: bool = False
+    is_bottled: bool = False
+    alc_code: str = None
+    egais_mark_code: str = None
+    egais_id: str = None
+    gtin: str = None
+
+@app.post("/api/v1/products")
+async def create_product(product_data: ProductCreateRequest):
+    """Создать новый товар"""
+    global db_connected
+    if not db_connected:
+        return {"status": "error", "message": "База данных не подключена"}
+    
+    try:
+        # Проверяем существование категории
+        category = await Category.get_or_none(id=product_data.category_id, is_active=True)
+        if not category:
+            return {"status": "error", "message": "Категория не найдена"}
+        
+        product = await Product.create(
+            name=product_data.name,
+            description=product_data.description,
+            category=category,
+            price=product_data.price,
+            barcode=product_data.barcode,
+            article=product_data.article,
+            unit=product_data.unit,
+            max_discount=product_data.max_discount,
+            tax_rate=product_data.tax_rate,
+            is_alcohol=product_data.is_alcohol,
+            is_marked=product_data.is_marked,
+            is_draught=product_data.is_draught,
+            is_bottled=product_data.is_bottled,
+            alc_code=product_data.alc_code,
+            egais_mark_code=product_data.egais_mark_code,
+            egais_id=product_data.egais_id,
+            gtin=product_data.gtin
+        )
+        
+        return {
+            "status": "success",
+            "data": {
+                "id": product.id,
+                "name": product.name,
+                "category_id": product.category_id,
+                "price": float(product.price)
+            }
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+@app.put("/api/v1/products/{product_id}")
+async def update_product(product_id: int, product_data: ProductCreateRequest):
+    """Обновить товар"""
+    global db_connected
+    if not db_connected:
+        return {"status": "error", "message": "База данных не подключена"}
+    
+    try:
+        product = await Product.get_or_none(id=product_id, is_active=True)
+        if not product:
+            return {"status": "error", "message": "Товар не найден"}
+        
+        # Проверяем существование категории
+        category = await Category.get_or_none(id=product_data.category_id, is_active=True)
+        if not category:
+            return {"status": "error", "message": "Категория не найдена"}
+        
+        # Обновляем поля
+        product.name = product_data.name
+        product.description = product_data.description
+        product.category = category
+        product.price = product_data.price
+        product.barcode = product_data.barcode
+        product.article = product_data.article
+        product.unit = product_data.unit
+        product.max_discount = product_data.max_discount
+        product.tax_rate = product_data.tax_rate
+        product.is_alcohol = product_data.is_alcohol
+        product.is_marked = product_data.is_marked
+        product.is_draught = product_data.is_draught
+        product.is_bottled = product_data.is_bottled
+        product.alc_code = product_data.alc_code
+        product.egais_mark_code = product_data.egais_mark_code
+        product.egais_id = product_data.egais_id
+        product.gtin = product_data.gtin
+        
+        await product.save()
+        
+        return {
+            "status": "success",
+            "data": {
+                "id": product.id,
+                "name": product.name,
+                "category_id": product.category_id,
+                "price": float(product.price)
+            }
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+@app.get("/api/v1/test")
+async def test_api():
+    """Тестовый endpoint для проверки работы API"""
+    global db_connected
+    return {
+        "status": "success", 
+        "message": "API работает", 
+        "db_connected": db_connected,
+        "categories_count": await Category.all().count() if db_connected else 0,
+        "products_count": await Product.all().count() if db_connected else 0
+    }
+
+@app.delete("/api/v1/products/{product_id}")
+async def delete_product(product_id: int):
+    """Удалить товар (мягкое удаление)"""
+    global db_connected
+    if not db_connected:
+        return {"status": "error", "message": "База данных не подключена"}
+    
+    try:
+        product = await Product.get_or_none(id=product_id, is_active=True)
+        if not product:
+            return {"status": "error", "message": "Товар не найден"}
+        
+        product.is_active = False
+        await product.save()
+        
+        return {"status": "success", "message": "Товар удален"}
     except Exception as e:
         return {"status": "error", "error": str(e)}
