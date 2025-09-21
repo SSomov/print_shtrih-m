@@ -6,12 +6,14 @@ from pydantic import BaseModel
 from escpos.printer import Network
 
 from datetime import datetime
+from loguru import logger
+
 try:
     import win32com.client
     WIN32_AVAILABLE = True
 except ImportError:
     WIN32_AVAILABLE = False
-    print("win32com недоступен - функции ККТ отключены")
+    logger.warning("win32com недоступен - функции ККТ отключены")
     # Создаем заглушку для win32com
     class MockWin32Com:
         class client:
@@ -34,6 +36,27 @@ from tortoise.models import Model
 from tortoise import fields
 
 load_dotenv()
+
+# Настройка loguru
+logger.remove()  # Удаляем стандартный обработчик
+# Создаем папку для логов если её нет
+import os
+if not os.path.exists("logs"):
+    os.makedirs("logs")
+
+logger.add(
+    "logs/app_{time:YYYY-MM-DD}.log",
+    rotation="1 day",
+    retention="30 days",
+    level="INFO",
+    format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {name}:{function}:{line} | {message}",
+    encoding="utf-8"
+)
+logger.add(
+    lambda msg: print(msg, end=""),
+    level="INFO",
+    format="{time:HH:mm:ss} | {level} | {message}"
+)
 
 # Глобальные переменные для кэширования данных ККТ
 KKT_CACHE = {
@@ -134,11 +157,11 @@ async def init_db():
             modules={'models': ['srv']}
         )
         await Tortoise.generate_schemas()
-        print("PostgreSQL подключен успешно")
+        logger.success("PostgreSQL подключен успешно")
         return True
     except Exception as e:
-        print(f"Ошибка подключения к PostgreSQL: {e}")
-        print("Будет использоваться файловое логирование")
+        logger.error(f"Ошибка подключения к PostgreSQL: {e}")
+        logger.info("Будет использоваться файловое логирование")
         return False
 
 async def create_default_categories():
@@ -147,7 +170,7 @@ async def create_default_categories():
         # Проверяем, есть ли уже категории
         count = await Category.all().count()
         if count > 0:
-            print(f"Категории уже существуют: {count}")
+            logger.info(f"Категории уже существуют: {count}")
             return
         
         # Создаем базовые категории
@@ -162,13 +185,13 @@ async def create_default_categories():
         
         for cat_data in categories:
             category = await Category.create(**cat_data)
-            print(f"Создана категория: {category.name}")
+            logger.info(f"Создана категория: {category.name}")
             
         # Создаем примеры товаров
         await create_sample_products()
         
     except Exception as e:
-        print(f"Ошибка создания базовых категорий: {e}")
+        logger.error(f"Ошибка создания базовых категорий: {e}")
 
 async def create_sample_products():
     """Создать примеры товаров"""
@@ -207,10 +230,10 @@ async def create_sample_products():
             if category:
                 prod_data['category'] = category
                 product = await Product.create(**prod_data)
-                print(f"Создан товар: {product.name}")
+                logger.info(f"Создан товар: {product.name}")
                 
     except Exception as e:
-        print(f"Ошибка создания примеров товаров: {e}")
+        logger.error(f"Ошибка создания примеров товаров: {e}")
 
 class Item(BaseModel):
     description: str = None
@@ -337,7 +360,7 @@ def send_user_details(fr, numdoc) -> None:
         fr.TagType = 7
         fr.TagValueStr = tag_value
         fr.FNSendTagOperation()
-    print(fr.ResultCode, fr.ResultCodeDescription)
+    logger.debug(f"Отправка тегов пользователя: {fr.ResultCode}, {fr.ResultCodeDescription}")
     """
         Значение реквизита «отраслевой реквизит предмета расчета» 1260
         Значение реквизита «идентификатор ФОИВ» (тег 1262): 030
@@ -407,7 +430,7 @@ async def save_check_result(status, message, error=None, order_data=None, result
         )
         return True
     except Exception as e:
-        print(f"Ошибка сохранения в БД: {e}, сохраняем в файл")
+        logger.warning(f"Ошибка сохранения в БД: {e}, сохраняем в файл")
         # Резервное сохранение в файл
         content = f"Status: {status}\nMessage: {message}\n"
         if error:
@@ -467,7 +490,7 @@ async def save_egais_result(status, order_data=None, xml_data=None, response_dat
         )
         return True
     except Exception as e:
-        print(f"Ошибка сохранения в БД: {e}, сохраняем в файл")
+        logger.warning(f"Ошибка сохранения в БД: {e}, сохраняем в файл")
         # Резервное сохранение в файл
         content = f"Status: {status}\n"
         if order_data:
@@ -489,7 +512,7 @@ async def save_egais_result(status, order_data=None, xml_data=None, response_dat
 
 async def order_pay(order, type_pay):
     try:
-        print(order)
+        logger.info(f"Начало обработки заказа: {order.num}, тип оплаты: {type_pay}")
         max_discount = os.getenv('MAX_DISCOUNT', 'False') in ['True']
         discount = 0
         total_to_pay = 0
@@ -499,31 +522,31 @@ async def order_pay(order, type_pay):
         fr = win32com.client.Dispatch('Addin.DRvFR')
         fr.Connect()
         ecr_mode, ecr_description, ecr_advanced_mode = get_ecr_mode(fr)
-        print(f"ECR Mode: {ecr_mode}, Description: {ecr_description}, Advanced Mode: {ecr_advanced_mode}")
+        logger.info(f"ECR Mode: {ecr_mode}, Description: {ecr_description}, Advanced Mode: {ecr_advanced_mode}")
         
         # Проверяем режим ККТ и закрываем открытый документ если необходимо
         # Режимы ККТ: 2 - готов к работе, 8 - открытый документ возврата, и другие
         if ecr_mode != 2 and ecr_mode != 4:  # Режим 2 - готов к работе, 4 - закрытая смена
-            print(f"ККТ не готов к работе (режим {ecr_mode}: {ecr_description}, расширенный режим: {ecr_advanced_mode})")
+            logger.warning(f"ККТ не готов к работе (режим {ecr_mode}: {ecr_description}, расширенный режим: {ecr_advanced_mode})")
             
             if ecr_advanced_mode == 3:
                 # Расширенный режим 3 - нужно продолжить печать
-                print("Расширенный режим 3 - выполняем ContinuePrint")
+                logger.info("Расширенный режим 3 - выполняем ContinuePrint")
                 try:
                     fr.ContinuePrint()
-                    print(f"ContinuePrint выполнен: {fr.ResultCode}, {fr.ResultCodeDescription}")
+                    logger.info(f"ContinuePrint выполнен: {fr.ResultCode}, {fr.ResultCodeDescription}")
                 except Exception as e:
-                    print(f"Ошибка при выполнении ContinuePrint: {e}")
+                    logger.error(f"Ошибка при выполнении ContinuePrint: {e}")
             else:
                 # Для других режимов - закрываем документ
-                print("Закрываем открытый документ")
+                logger.info("Закрываем открытый документ")
                 fr.Disconnect()  # Отключаемся перед вызовом kill_document
                 
                 try:
                     kill_result = kill_document()  # Закрываем открытый документ
-                    print(f"Результат закрытия документа: {kill_result}")
+                    logger.info(f"Результат закрытия документа: {kill_result}")
                 except Exception as e:
-                    print(f"Ошибка при закрытии документа: {e}")
+                    logger.error(f"Ошибка при закрытии документа: {e}")
                 
                 # Переподключаемся после закрытия документа
                 fr = win32com.client.Dispatch('Addin.DRvFR')
@@ -531,12 +554,12 @@ async def order_pay(order, type_pay):
             
             # Проверяем режим ККТ после операции (ContinuePrint или kill_document)
             ecr_mode, ecr_description, ecr_advanced_mode = get_ecr_mode(fr)
-            print(f"После операции восстановления - ECR Mode: {ecr_mode}, Description: {ecr_description}, Advanced Mode: {ecr_advanced_mode}")
+            logger.info(f"После операции восстановления - ECR Mode: {ecr_mode}, Description: {ecr_description}, Advanced Mode: {ecr_advanced_mode}")
             
             # Проверяем, что ККТ теперь готов к работе
             if ecr_mode != 2:
                 error_msg = f"ККТ все еще не готов к работе после операции восстановления (режим {ecr_mode}: {ecr_description}, расширенный режим: {ecr_advanced_mode})"
-                print(error_msg)
+                logger.error(error_msg)
                 fr.Disconnect()
                 
                 # Сохраняем ошибку в БД
@@ -557,22 +580,21 @@ async def order_pay(order, type_pay):
                 item_discount = min(discount, float(item.maxdiscont) / 100)
                 item_no_discount = True
             price = float(item.price)*(1 - item_discount)
-            print(quantity,price)
+            logger.debug(f"Товар: {item.name}, количество: {quantity}, цена: {price}")
             measure_unit = 0
             PaymentItemSign = 1
-            print(item)
             if item.mark == '1' and item.draught == '1':
-                print("алко разливное пиво")
+                logger.debug("алко разливное пиво")
                 fr.DivisionalQuantity = False
                 fr.Numerator = "1";
                 fr.Denominator = "1";
                 measure_unit = 41
                 PaymentItemSign = 31
             elif item.mark == '1' and item.bottled == '1':
-                print("алко пиво")
+                logger.debug("алко пиво")
                 PaymentItemSign = 31
             elif item.mark == '1':
-                print("иные маркированные")
+                logger.debug("иные маркированные")
                 PaymentItemSign = 33
             fr.MeasureUnit = measure_unit
             fr.StringForPrinting = item.name
@@ -581,23 +603,23 @@ async def order_pay(order, type_pay):
             fr.PaymentTypeSign = 4
             fr.PaymentItemSign =  PaymentItemSign
             fr.FNOperation()
-            print(fr.ResultCode, fr.ResultCodeDescription)
+            logger.debug(f"FNOperation: {fr.ResultCode}, {fr.ResultCodeDescription}")
             total_to_pay += float(item.kolvo) * float(item.price) * (1 - item_discount)
             if item.mark == '1' and item.draught == '1':
                 send_user_details(fr, order.num.strip())
                 fr.MCOSUSign = True
                 fr.Barcode = item.GTIN
                 fr.FNSendItemBarcode()
-                print(fr.MarkingTypeEx, fr.MarkingType, fr.CheckItemLocalResult)
-                print(fr.ResultCode, fr.ResultCodeDescription)
+                logger.debug(f"Маркировка разливного: {fr.MarkingTypeEx}, {fr.MarkingType}, {fr.CheckItemLocalResult}")
+                logger.debug(f"FNSendItemBarcode: {fr.ResultCode}, {fr.ResultCodeDescription}")
             elif item.mark == '1':
                 qr_add_gs = item.qr.replace('{GS}', chr(29))
                 fr.BarCode = qr_add_gs
                 fr.ItemStatus = 1
                 fr.FNCheckItemBarcode()
                 fr.FNAcceptMarkingCode()
-                print(fr.MarkingTypeEx, fr.MarkingType, fr.CheckItemLocalResult)
-                print(fr.ResultCode, fr.ResultCodeDescription)
+                logger.debug(f"Маркировка товара: {fr.MarkingTypeEx}, {fr.MarkingType}, {fr.CheckItemLocalResult}")
+                logger.debug(f"FNCheckItemBarcode: {fr.ResultCode}, {fr.ResultCodeDescription}")
                 fr.Barcode = qr_add_gs
                 fr.FNSendItemBarcode()
         if float(order.alldiscount) > 0 and float(order.alldiscount) <= 100:
@@ -617,7 +639,7 @@ async def order_pay(order, type_pay):
             fr.Summ2 = total_to_pay
         send_tag_1021_1203(fr, order.employee_pos + " " + order.employee_fio, order.employee_inn)
         fr.FNCloseCheckEx()
-        print(fr.ResultCode, fr.ResultCodeDescription)
+        logger.info(f"Закрытие чека: {fr.ResultCode}, {fr.ResultCodeDescription}")
         fr.StringQuantity = 2
         fr.FeedDocument()
         fr.CutType = 2
@@ -648,9 +670,9 @@ async def order_pay(order, type_pay):
                 'FDDateTime': check_iso_datetime  # Время в формате ЕГАИС
             }
             
-            print(f"Используются кэшированные данные ККТ: {check_info}")
+            logger.debug(f"Используются кэшированные данные ККТ: {check_info}")
         except Exception as e:
-            print(f"Ошибка получения данных ККТ: {e}")
+            logger.error(f"Ошибка получения данных ККТ: {e}")
         
         fr.Disconnect()
         
@@ -678,13 +700,13 @@ async def order_pay(order, type_pay):
             try:
                 # Если не удалось получить данные из ККТ, не отправляем в ЕГАИС
                 if not check_info:
-                    print("Не удалось получить данные ККТ, пропускаем отправку в ЕГАИС")
+                    logger.warning("Не удалось получить данные ККТ, пропускаем отправку в ЕГАИС")
                     return {"status": "success", "message": "Чек успешно напечатан, но не отправлен в ЕГАИС"}
                 
                 egais_result = await send_egais_check(order, check_info)
-                print(f"ЕГАИС результат: {egais_result}")
+                logger.info(f"ЕГАИС результат: {egais_result}")
             except Exception as e:
-                print(f"Ошибка отправки в ЕГАИС: {e}")
+                logger.error(f"Ошибка отправки в ЕГАИС: {e}")
         return {"status": "success", "message": "Чек успешно напечатан"}
     except Exception as e:
         # Сохраняем ошибку в БД
@@ -701,7 +723,7 @@ async def order_pay(order, type_pay):
 
 @app.post("/api/v1/invoice")
 async def create_invoice(order: Order):
-    print(order)
+    logger.info(f"Печать счета для заказа: {order.num}")
     max_discount = os.getenv('MAX_DISCOUNT', 'False') in ['True']
     cut_invoice = os.getenv('CUT_INVOICE', 'False') in ['True']
     fr = win32com.client.Dispatch('Addin.DRvFR')
@@ -735,7 +757,7 @@ async def create_invoice(order: Order):
     if float(order.alldiscount) > 0 and float(order.alldiscount) <= 100:
         discount = float(order.alldiscount) / 100
     for item in order.products:
-        print(item)
+        logger.debug(f"Товар в счете: {item.name}")
         fr.StringForPrinting = f"{item.name.upper()}...{item.kolvo}x{item.price}  {float(item.kolvo)*float(item.price)}"
         fr.PrintString()
         fr.StringQuantity = 1
@@ -768,7 +790,7 @@ async def create_invoice(order: Order):
     fr.FeedDocument()
     if cut_invoice:
         fr.CutCheck()
-    print(fr.ResultCode, fr.ResultCodeDescription)
+    logger.info(f"Печать счета завершена: {fr.ResultCode}, {fr.ResultCodeDescription}")
     fr.Disconnect()
     # return order
     return {"message": "Invoice printed successfully"}
@@ -840,21 +862,21 @@ async def print_x_report():
     fr.Connect()
     fr.Password = 30
     fr.PrintReportWithoutCleaning()
-    print(fr.ResultCode, fr.ResultCodeDescription)
+    logger.info(f"X-отчет: {fr.ResultCode}, {fr.ResultCodeDescription}")
     fr.WaitForPrinting()
     fr.Disconnect()
     return {"message": "X-report printed successfully"}
 
 @app.post("/api/v1/print/zreport")
 async def print_z_report(employee: Employee):
-    print(employee)
+    logger.info(f"Печать Z-отчета сотрудником: {employee.fio}")
     fr = win32com.client.Dispatch('Addin.DRvFR')
     fr.Connect()
     fr.Password = 30
     fr.FNBeginCloseSession()
     send_tag_1021_1203(fr, employee.pos + " " + employee.fio, employee.inn)
     fr.FNCloseSession()
-    print(fr.ResultCode, fr.ResultCodeDescription)
+    logger.info(f"Z-отчет: {fr.ResultCode}, {fr.ResultCodeDescription}")
     fr.WaitForPrinting()
     # return fr.ECRMode, fr.ECRModeDescription
     fr.Disconnect()
@@ -868,8 +890,9 @@ def kill_document():
     fr.Connect()
     fr.Password = 30
     fr.SysAdminCancelCheck()
-    print('Аннулировали документ')
+    logger.info('Аннулировали документ')
     result = {'ResultCode': fr.ResultCode, 'ResultCodeDescription': fr.ResultCodeDescription}
+    logger.info(f"Результат отмены документа: {result}")
     fr.Disconnect()
     return result
 
@@ -932,11 +955,11 @@ def build_egais_cheque_xml(order, alco_items, last_check_info=None):
     Использует простую структуру как в примере egais_cheque_example.xml
     """
     # Получаем данные организации из переменных окружения или кэша ККТ
-    kassa = last_check_info.get('KKTNumber') if last_check_info else os.getenv("KASSA", "45664")
-    number = last_check_info.get('FDNumber') if last_check_info and last_check_info.get('FDNumber') else "1"
+    kassa = last_check_info.get('KKTNumber') if last_check_info and last_check_info.get('KKTNumber') else os.getenv("KASSA")
+    number = last_check_info.get('FDNumber') if last_check_info and last_check_info.get('FDNumber') else None
     
     # Используем актуальный номер смены из check_info или значение по умолчанию
-    shift = last_check_info.get('ShiftNumber') if last_check_info and last_check_info.get('ShiftNumber') else "1"
+    shift = last_check_info.get('ShiftNumber') if last_check_info and last_check_info.get('ShiftNumber') else None
     
     # Используем актуальное время из check_info или текущее время
     if last_check_info and last_check_info.get('FDDateTime'):
@@ -952,7 +975,7 @@ def build_egais_cheque_xml(order, alco_items, last_check_info=None):
     fsrar_id = os.getenv("FSRAR_ID", "020000347275")
     
     # Логируем используемые параметры
-    print(f"EGАИС ChequeV3 XML параметры: смена={shift}, время={iso_datetime}, касса={kassa}, тип={cheque_type}")
+    logger.info(f"EGАИС ChequeV3 XML параметры: смена={shift}, время={iso_datetime}, касса={kassa}, тип={cheque_type}")
     
     # Создаем корневой элемент Documents с правильными namespace
     documents = ET.Element("ns:Documents")
@@ -1301,10 +1324,10 @@ def initialize_kkt_cache():
         fr.Disconnect()
         KKT_CACHE['initialized'] = True
         
-        print(f"Кэш ККТ инициализирован: INN={KKT_CACHE['INN']}, KKTRegNumber={KKT_CACHE['KKTRegistrationNumber']}, KKTSerialNumber={KKT_CACHE['KKTSerialNumber']}, FNSerialNumber={KKT_CACHE['FNSerialNumber']}")
+        logger.success(f"Кэш ККТ инициализирован: INN={KKT_CACHE['INN']}, KKTRegNumber={KKT_CACHE['KKTRegistrationNumber']}, KKTSerialNumber={KKT_CACHE['KKTSerialNumber']}, FNSerialNumber={KKT_CACHE['FNSerialNumber']}")
         
     except Exception as e:
-        print(f"Ошибка инициализации кэша ККТ: {e}")
+        logger.error(f"Ошибка инициализации кэша ККТ: {e}")
         KKT_CACHE['initialized'] = False
 
 def get_ecr_status(fr):
