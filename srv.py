@@ -1,11 +1,14 @@
-from typing import Union, List
+from typing import Union, List, Optional
 
-from fastapi import FastAPI, UploadFile, File, Form
+from fastapi import FastAPI, UploadFile, File, Form, Depends, HTTPException, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
+import jwt
+from passlib.context import CryptContext
 
 from escpos.printer import Network
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from loguru import logger
 
 try:
@@ -33,7 +36,7 @@ import traceback
 
 from tortoise import Tortoise
 from tortoise.models import Model
-from tortoise import fields
+from tortoise import fields, Q
 
 load_dotenv()
 
@@ -148,6 +151,24 @@ class Product(Model):
 
     class Meta:
         table = "products"
+
+class User(Model):
+    id = fields.IntField(pk=True)
+    username = fields.CharField(max_length=50, unique=True)
+    password_hash = fields.CharField(max_length=255)
+    is_active = fields.BooleanField(default=True)
+    created_at = fields.DatetimeField(auto_now_add=True)
+
+    class Meta:
+        table = "users"
+
+# Настройки безопасности
+SECRET_KEY = os.getenv("JWT_SECRET", "your-secret-key-change-in-production")
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 дней
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+security = HTTPBearer()
 
 # Инициализация Tortoise ORM
 async def init_db():
@@ -295,6 +316,59 @@ app = FastAPI()
 # Инициализация БД при запуске
 db_connected = False
 
+# Функции авторизации
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    return pwd_context.verify(plain_password, hashed_password)
+
+def get_password_hash(password: str) -> str:
+    return pwd_context.hash(password)
+
+def create_access_token(data: dict):
+    to_encode = data.copy()
+    expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
+async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    try:
+        token = credentials.credentials
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username: str = payload.get("sub")
+        if username is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Неверный токен авторизации"
+            )
+    except jwt.PyJWTError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Неверный токен авторизации"
+        )
+    
+    user = await User.get_or_none(username=username)
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Пользователь не найден"
+        )
+    return user
+
+async def create_default_user():
+    """Создать тестового пользователя если его нет"""
+    try:
+        count = await User.all().count()
+        if count == 0:
+            # Создаем тестового пользователя: admin / admin
+            user = await User.create(
+                username="admin",
+                password_hash=get_password_hash("admin"),
+                is_active=True
+            )
+            logger.info(f"Создан пользователь: {user.username}")
+    except Exception as e:
+        logger.error(f"Ошибка создания пользователя: {e}")
+
 @app.on_event("startup")
 async def startup_event():
     global db_connected
@@ -303,6 +377,8 @@ async def startup_event():
     if db_connected:
         # Создаем базовые категории если их нет
         await create_default_categories()
+        # Создаем тестового пользователя
+        await create_default_user()
     
     # Инициализируем кэш данных ККТ
     initialize_kkt_cache()
@@ -1606,6 +1682,48 @@ async def get_logs_stats():
     except Exception as e:
         return {"status": "error", "error": str(e)}
 
+# ========== АВТОРИЗАЦИЯ ==========
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+@app.post("/api/v1/auth/login")
+async def login(login_data: LoginRequest):
+    """Авторизация пользователя"""
+    global db_connected
+    if not db_connected:
+        return {"status": "error", "message": "База данных не подключена"}
+    
+    try:
+        user = await User.get_or_none(username=login_data.username)
+        if not user or not verify_password(login_data.password, user.password_hash):
+            return {
+                "status": "error",
+                "message": "Неверное имя пользователя или пароль"
+            }
+        
+        if not user.is_active:
+            return {
+                "status": "error",
+                "message": "Пользователь заблокирован"
+            }
+        
+        # Создаем JWT токен
+        access_token = create_access_token(data={"sub": user.username})
+        
+        return {
+            "status": "success",
+            "token": access_token,
+            "username": user.username
+        }
+    except Exception as e:
+        logger.error(f"Ошибка авторизации: {e}")
+        return {
+            "status": "error",
+            "message": "Ошибка авторизации"
+        }
+
 # ========== СПРАВОЧНИКИ ==========
 
 # Категории товаров
@@ -1710,8 +1828,8 @@ async def delete_category(category_id: int):
 
 # Товары
 @app.get("/api/v1/products")
-async def get_products(category_id: int = None, page: int = 1, limit: int = 50):
-    """Получить список товаров с пагинацией"""
+async def get_products(category_id: int = None, search: str = None, page: int = 1, limit: int = 100):
+    """Получить список товаров с пагинацией, фильтром по категории и поиском"""
     global db_connected
     if not db_connected:
         return {"status": "error", "message": "База данных не подключена"}
@@ -1722,6 +1840,14 @@ async def get_products(category_id: int = None, page: int = 1, limit: int = 50):
         
         if category_id:
             query = query.filter(category_id=category_id)
+        
+        # Поиск по названию или артикулу
+        if search:
+            query = query.filter(
+                Q(name__icontains=search) | 
+                Q(article__icontains=search) |
+                Q(barcode__icontains=search)
+            )
         
         total = await query.count()
         products = await query.offset(offset).limit(limit).order_by('name')
