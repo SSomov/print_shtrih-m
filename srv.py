@@ -162,6 +162,34 @@ class User(Model):
     class Meta:
         table = "users"
 
+class Area(Model):
+    """Области размещения (залы, помещения, территории)"""
+    id = fields.IntField(pk=True)
+    name = fields.CharField(max_length=100)
+    description = fields.TextField(null=True)
+    capacity = fields.IntField(null=True)  # Вместимость
+    is_active = fields.BooleanField(default=True)
+    created_at = fields.DatetimeField(auto_now_add=True)
+    updated_at = fields.DatetimeField(auto_now=True)
+
+    class Meta:
+        table = "areas"
+
+class Seat(Model):
+    """Места размещения (столики, места под деревом и т.д.)"""
+    id = fields.IntField(pk=True)
+    number = fields.CharField(max_length=20)  # Номер места
+    area = fields.ForeignKeyField('models.Area', related_name='seats', on_delete=fields.CASCADE)
+    capacity = fields.IntField(default=4)  # Вместимость места
+    description = fields.TextField(null=True)
+    is_active = fields.BooleanField(default=True)
+    is_occupied = fields.BooleanField(default=False)  # Занято ли
+    created_at = fields.DatetimeField(auto_now_add=True)
+    updated_at = fields.DatetimeField(auto_now=True)
+
+    class Meta:
+        table = "seats"
+
 # Настройки безопасности
 SECRET_KEY = os.getenv("JWT_SECRET", "your-secret-key-change-in-production")
 ALGORITHM = "HS256"
@@ -185,76 +213,7 @@ async def init_db():
         logger.info("Будет использоваться файловое логирование")
         return False
 
-async def create_default_categories():
-    """Создать базовые категории товаров если их нет"""
-    try:
-        # Проверяем, есть ли уже категории
-        count = await Category.all().count()
-        if count > 0:
-            logger.info(f"Категории уже существуют: {count}")
-            return
-        
-        # Создаем базовые категории
-        categories = [
-            {'name': 'Напитки', 'description': 'Безалкогольные и алкогольные напитки'},
-            {'name': 'Закуски', 'description': 'Холодные и горячие закуски'},
-            {'name': 'Основные блюда', 'description': 'Горячие основные блюда'},
-            {'name': 'Десерты', 'description': 'Сладкие блюда и десерты'},
-            {'name': 'Алкоголь', 'description': 'Алкогольные напитки'},
-            {'name': 'Пиво', 'description': 'Пивные напитки'}
-        ]
-        
-        for cat_data in categories:
-            category = await Category.create(**cat_data)
-            logger.info(f"Создана категория: {category.name}")
-            
-        # Создаем примеры товаров
-        await create_sample_products()
-        
-    except Exception as e:
-        logger.error(f"Ошибка создания базовых категорий: {e}")
-
-async def create_sample_products():
-    """Создать примеры товаров"""
-    try:
-        # Получаем категории
-        categories = {}
-        for cat in await Category.all():
-            categories[cat.name] = cat
-        
-        # Примеры товаров
-        products = [
-            # Напитки
-            {'name': 'Кока-кола 0.33л', 'description': 'Газированный напиток', 'category': 'Напитки', 
-             'price': 120.0, 'barcode': '4607050690012', 'article': 'COCA_033'},
-            {'name': 'Сок яблочный 0.2л', 'description': 'Натуральный яблочный сок', 'category': 'Напитки', 
-             'price': 80.0, 'barcode': '4607050690029', 'article': 'JUICE_APPLE'},
-            
-            # Закуски
-            {'name': 'Картофель фри', 'description': 'Жареный картофель фри', 'category': 'Закуски', 
-             'price': 180.0, 'article': 'FRIES_001'},
-            {'name': 'Куриные крылышки', 'description': 'Острые куриные крылышки', 'category': 'Закуски', 
-             'price': 320.0, 'article': 'WINGS_001'},
-            
-            # Алкоголь
-            {'name': 'Водка Premium 0.5л', 'description': 'Премиальная водка', 'category': 'Алкоголь', 
-             'price': 1200.0, 'barcode': '4607001234567', 'article': 'VODKA_PREM', 
-             'is_alcohol': True, 'is_marked': True, 'is_bottled': True, 'max_discount': 0},
-            {'name': 'Пиво светлое 0.5л', 'description': 'Светлое пиво разливное', 'category': 'Пиво', 
-             'price': 180.0, 'barcode': '4607001234574', 'article': 'BEER_LIGHT', 'unit': 'л',
-             'is_alcohol': True, 'is_draught': True}
-        ]
-        
-        for prod_data in products:
-            category_name = prod_data.pop('category')
-            category = categories.get(category_name)
-            if category:
-                prod_data['category'] = category
-                product = await Product.create(**prod_data)
-                logger.info(f"Создан товар: {product.name}")
-                
-    except Exception as e:
-        logger.error(f"Ошибка создания примеров товаров: {e}")
+# Функции для создания тестовых данных перенесены в create_test_data.py
 
 class Item(BaseModel):
     description: str = None
@@ -354,31 +313,21 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
         )
     return user
 
-async def create_default_user():
-    """Создать тестового пользователя если его нет"""
-    try:
-        count = await User.all().count()
-        if count == 0:
-            # Создаем тестового пользователя: admin / admin
-            user = await User.create(
-                username="admin",
-                password_hash=get_password_hash("admin"),
-                is_active=True
-            )
-            logger.info(f"Создан пользователь: {user.username}")
-    except Exception as e:
-        logger.error(f"Ошибка создания пользователя: {e}")
-
 @app.on_event("startup")
 async def startup_event():
     global db_connected
     db_connected = await init_db()
     
     if db_connected:
-        # Создаем базовые категории если их нет
-        await create_default_categories()
-        # Создаем тестового пользователя
-        await create_default_user()
+        # Проверяем, нужно ли создавать тестовые данные
+        init_test_data = os.getenv('INIT_TEST_DATA', 'false').lower() == 'true'
+        
+        if init_test_data:
+            logger.info("Инициализация тестовых данных включена")
+            from create_test_data import create_test_data
+            await create_test_data()
+        else:
+            logger.info("Инициализация тестовых данных отключена (INIT_TEST_DATA != true)")
     
     # Инициализируем кэш данных ККТ
     initialize_kkt_cache()
@@ -1823,6 +1772,204 @@ async def delete_category(category_id: int):
         await category.save()
         
         return {"status": "success", "message": "Категория удалена"}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+# ========== ОБЛАСТИ ==========
+
+@app.get("/api/v1/areas")
+async def get_areas():
+    """Получить список всех областей"""
+    global db_connected
+    if not db_connected:
+        return {"status": "error", "message": "База данных не подключена"}
+    
+    try:
+        areas = await Area.filter(is_active=True).order_by('name')
+        return {
+            "status": "success",
+            "data": [
+                {
+                    "id": area.id,
+                    "name": area.name,
+                    "description": area.description,
+                    "capacity": area.capacity,
+                    "is_active": area.is_active,
+                    "created_at": area.created_at.isoformat() if area.created_at else None,
+                    "updated_at": area.updated_at.isoformat() if area.updated_at else None
+                }
+                for area in areas
+            ]
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+@app.post("/api/v1/areas")
+async def create_area(name: str = Form(...), description: str = Form(None), capacity: int = Form(None)):
+    """Создать новую область"""
+    global db_connected
+    if not db_connected:
+        return {"status": "error", "message": "База данных не подключена"}
+    
+    try:
+        area = await Area.create(name=name, description=description, capacity=capacity)
+        return {
+            "status": "success",
+            "data": {
+                "id": area.id,
+                "name": area.name,
+                "description": area.description,
+                "capacity": area.capacity,
+                "is_active": area.is_active
+            }
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+@app.get("/api/v1/areas/{area_id}")
+async def get_area(area_id: int):
+    """Получить область по ID"""
+    global db_connected
+    if not db_connected:
+        return {"status": "error", "message": "База данных не подключена"}
+    
+    try:
+        area = await Area.get_or_none(id=area_id, is_active=True)
+        if not area:
+            return {"status": "error", "message": "Область не найдена"}
+        
+        return {
+            "status": "success",
+            "data": {
+                "id": area.id,
+                "name": area.name,
+                "description": area.description,
+                "capacity": area.capacity,
+                "is_active": area.is_active
+            }
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+# ========== МЕСТА ==========
+
+@app.get("/api/v1/seats")
+async def get_seats(area_id: int = None):
+    """Получить список мест"""
+    global db_connected
+    if not db_connected:
+        return {"status": "error", "message": "База данных не подключена"}
+    
+    try:
+        query = Seat.filter(is_active=True).select_related('area')
+        
+        if area_id:
+            query = query.filter(area_id=area_id)
+        
+        seats = await query.order_by('area__name', 'number')
+        
+        return {
+            "status": "success",
+            "data": [
+                {
+                    "id": seat.id,
+                    "number": seat.number,
+                    "area": {
+                        "id": seat.area.id,
+                        "name": seat.area.name
+                    },
+                    "capacity": seat.capacity,
+                    "description": seat.description,
+                    "is_active": seat.is_active,
+                    "is_occupied": seat.is_occupied,
+                    "created_at": seat.created_at.isoformat() if seat.created_at else None,
+                    "updated_at": seat.updated_at.isoformat() if seat.updated_at else None
+                }
+                for seat in seats
+            ]
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+@app.post("/api/v1/seats")
+async def create_seat(area_id: int = Form(...), number: str = Form(...), capacity: int = Form(4), description: str = Form(None)):
+    """Создать новое место"""
+    global db_connected
+    if not db_connected:
+        return {"status": "error", "message": "База данных не подключена"}
+    
+    try:
+        area = await Area.get_or_none(id=area_id, is_active=True)
+        if not area:
+            return {"status": "error", "message": "Область не найдена"}
+        
+        seat = await Seat.create(area=area, number=number, capacity=capacity, description=description)
+        return {
+            "status": "success",
+            "data": {
+                "id": seat.id,
+                "number": seat.number,
+                "area_id": seat.area_id,
+                "capacity": seat.capacity,
+                "is_active": seat.is_active
+            }
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+@app.get("/api/v1/seats/{seat_id}")
+async def get_seat(seat_id: int):
+    """Получить место по ID"""
+    global db_connected
+    if not db_connected:
+        return {"status": "error", "message": "База данных не подключена"}
+    
+    try:
+        seat = await Seat.get_or_none(id=seat_id, is_active=True).select_related('area')
+        if not seat:
+            return {"status": "error", "message": "Место не найдено"}
+        
+        return {
+            "status": "success",
+            "data": {
+                "id": seat.id,
+                "number": seat.number,
+                "area": {
+                    "id": seat.area.id,
+                    "name": seat.area.name
+                },
+                "capacity": seat.capacity,
+                "description": seat.description,
+                "is_active": seat.is_active,
+                "is_occupied": seat.is_occupied
+            }
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+@app.put("/api/v1/seats/{seat_id}/status")
+async def update_seat_status(seat_id: int, is_occupied: bool = Form(...)):
+    """Обновить статус места (занято/свободно)"""
+    global db_connected
+    if not db_connected:
+        return {"status": "error", "message": "База данных не подключена"}
+    
+    try:
+        seat = await Seat.get_or_none(id=seat_id, is_active=True)
+        if not seat:
+            return {"status": "error", "message": "Место не найдено"}
+        
+        seat.is_occupied = is_occupied
+        await seat.save()
+        
+        return {
+            "status": "success",
+            "data": {
+                "id": seat.id,
+                "number": seat.number,
+                "is_occupied": seat.is_occupied
+            }
+        }
     except Exception as e:
         return {"status": "error", "error": str(e)}
 
