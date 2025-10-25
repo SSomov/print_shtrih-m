@@ -6,3 +6,6 @@ requests
 lxml
 python-escpos
 loguru
+passlib[bcrypt]
+PyJWT
+python-multipart
