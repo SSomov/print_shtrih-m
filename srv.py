@@ -128,6 +128,7 @@ class Product(Model):
     barcode = fields.CharField(max_length=50, null=True)  # EAN
     article = fields.CharField(max_length=50, null=True)  # Артикул
     unit = fields.CharField(max_length=20, default="шт")  # Единица измерения
+    legacy_id = fields.CharField(max_length=100, null=True)  # ID из старой системы (1С)
     
     # Скидки и налоги
     max_discount = fields.DecimalField(max_digits=5, decimal_places=2, default=100)  # Максимальная скидка в %
@@ -2161,6 +2162,7 @@ async def get_products(category_id: int = None, search: str = None, page: int = 
                     "barcode": prod.barcode,
                     "article": prod.article,
                     "unit": prod.unit,
+                    "legacy_id": prod.legacy_id,
                     "max_discount": float(prod.max_discount),
                     "tax_rate": float(prod.tax_rate),
                     "is_alcohol": prod.is_alcohol,
@@ -2213,6 +2215,7 @@ async def get_product(product_id: int):
                 "barcode": product.barcode,
                 "article": product.article,
                 "unit": product.unit,
+                "legacy_id": product.legacy_id,
                 "max_discount": float(product.max_discount),
                 "tax_rate": float(product.tax_rate),
                 "is_alcohol": product.is_alcohol,
@@ -2231,22 +2234,23 @@ async def get_product(product_id: int):
 
 class ProductCreateRequest(BaseModel):
     name: str
-    description: str = None
+    description: Optional[str] = None
     category_id: int
     price: float
-    barcode: str = None
-    article: str = None
+    barcode: Optional[str] = None
+    article: Optional[str] = None
     unit: str = "шт"
+    legacy_id: Optional[str] = None  # ID из старой системы (1С)
     max_discount: float = 100
     tax_rate: float = 20
     is_alcohol: bool = False
     is_marked: bool = False
     is_draught: bool = False
     is_bottled: bool = False
-    alc_code: str = None
-    egais_mark_code: str = None
-    egais_id: str = None
-    gtin: str = None
+    alc_code: Optional[str] = None
+    egais_mark_code: Optional[str] = None
+    egais_id: Optional[str] = None
+    gtin: Optional[str] = None
 
 @app.post("/api/v1/products")
 async def create_product(product_data: ProductCreateRequest):
@@ -2261,6 +2265,17 @@ async def create_product(product_data: ProductCreateRequest):
         if not category:
             return {"status": "error", "message": "Категория не найдена"}
         
+        # Проверяем уникальность legacy_id, если он указан
+        if product_data.legacy_id:
+            existing_product = await Product.get_or_none(legacy_id=product_data.legacy_id)
+            if existing_product:
+                return {
+                    "status": "error", 
+                    "message": f"Продукт с legacy_id '{product_data.legacy_id}' уже существует",
+                    "existing_product_id": existing_product.id,
+                    "existing_product_name": existing_product.name
+                }
+        
         product = await Product.create(
             name=product_data.name,
             description=product_data.description,
@@ -2269,6 +2284,7 @@ async def create_product(product_data: ProductCreateRequest):
             barcode=product_data.barcode,
             article=product_data.article,
             unit=product_data.unit,
+            legacy_id=product_data.legacy_id,
             max_discount=product_data.max_discount,
             tax_rate=product_data.tax_rate,
             is_alcohol=product_data.is_alcohol,
@@ -2310,6 +2326,17 @@ async def update_product(product_id: int, product_data: ProductCreateRequest):
         if not category:
             return {"status": "error", "message": "Категория не найдена"}
         
+        # Проверяем уникальность legacy_id при обновлении, если он указан и изменился
+        if product_data.legacy_id and product_data.legacy_id != product.legacy_id:
+            existing_product = await Product.get_or_none(legacy_id=product_data.legacy_id)
+            if existing_product and existing_product.id != product_id:
+                return {
+                    "status": "error", 
+                    "message": f"Продукт с legacy_id '{product_data.legacy_id}' уже существует",
+                    "existing_product_id": existing_product.id,
+                    "existing_product_name": existing_product.name
+                }
+        
         # Обновляем поля
         product.name = product_data.name
         product.description = product_data.description
@@ -2318,6 +2345,7 @@ async def update_product(product_id: int, product_data: ProductCreateRequest):
         product.barcode = product_data.barcode
         product.article = product_data.article
         product.unit = product_data.unit
+        product.legacy_id = product_data.legacy_id
         product.max_discount = product_data.max_discount
         product.tax_rate = product_data.tax_rate
         product.is_alcohol = product_data.is_alcohol
