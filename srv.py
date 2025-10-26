@@ -36,7 +36,8 @@ import traceback
 
 from tortoise import Tortoise
 from tortoise.models import Model
-from tortoise import fields, Q
+from tortoise import fields
+from tortoise.expressions import Q
 
 load_dotenv()
 
