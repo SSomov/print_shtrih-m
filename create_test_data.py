@@ -20,10 +20,10 @@ def get_password_hash(password: str) -> str:
     )
     return pwd_context.hash(password)
 
-# Импортируем модели из srv (после определения функций)
+# Импортируем модели из api.models (после определения функций)
 def _import_models():
-    """Импорт моделей из srv"""
-    from srv import Category, Product, User, Area, Seat
+    """Импорт моделей из api.models"""
+    from api.models import Category, Product, User, Area, Seat
     return Category, Product, User, Area, Seat
 
 async def create_test_data():

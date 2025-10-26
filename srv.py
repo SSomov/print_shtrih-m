@@ -71,127 +71,8 @@ KKT_CACHE = {
     'initialized': False
 }
 
-# Модели для Tortoise ORM
-class CheckLog(Model):
-    id = fields.IntField(pk=True)
-    timestamp = fields.DatetimeField(auto_now_add=True)
-    status = fields.CharField(max_length=20)
-    message = fields.TextField(null=True)
-    error = fields.TextField(null=True)
-    order_data = fields.JSONField(null=True)
-    result_code = fields.CharField(max_length=10, null=True)
-    result_description = fields.TextField(null=True)
-    filename = fields.CharField(max_length=255, null=True)
-    document_number = fields.CharField(max_length=50, null=True)  # Номер чека
-    fiscal_sign = fields.CharField(max_length=50, null=True)  # Фискальный признак
-    legacynum = fields.CharField(max_length=100, null=True)  # Order.num
-
-    class Meta:
-        table = "check_logs"
-
-class EgaisLog(Model):
-    id = fields.IntField(pk=True)
-    timestamp = fields.DatetimeField(auto_now_add=True)
-    order_data = fields.JSONField(null=True)
-    xml_data = fields.TextField(null=True)
-    response_data = fields.TextField(null=True)
-    qr_code = fields.TextField(null=True)
-    sign = fields.TextField(null=True)  # Подпись из ответа ЕГАИС
-    status = fields.CharField(max_length=20)
-    error = fields.TextField(null=True)
-    xml_file = fields.CharField(max_length=255, null=True)
-    saved_file = fields.CharField(max_length=255, null=True)
-    legacynum = fields.CharField(max_length=100, null=True)  # Order.num
-
-    class Meta:
-        table = "egais_logs"
-
-class Category(Model):
-    id = fields.IntField(pk=True)
-    name = fields.CharField(max_length=100, unique=True)
-    description = fields.TextField(null=True)
-    legacy_id = fields.CharField(max_length=100, null=True)  # ID из старой системы (1С)
-    is_active = fields.BooleanField(default=True)
-    created_at = fields.DatetimeField(auto_now_add=True)
-    updated_at = fields.DatetimeField(auto_now=True)
-
-    class Meta:
-        table = "categories"
-
-class Product(Model):
-    id = fields.IntField(pk=True)
-    name = fields.CharField(max_length=255)
-    description = fields.TextField(null=True)
-    category = fields.ForeignKeyField('models.Category', related_name='products', on_delete=fields.CASCADE)
-    
-    # Основные поля товара
-    price = fields.DecimalField(max_digits=10, decimal_places=2)
-    barcode = fields.CharField(max_length=50, null=True)  # EAN
-    article = fields.CharField(max_length=50, null=True)  # Артикул
-    unit = fields.CharField(max_length=20, default="шт")  # Единица измерения
-    legacy_id = fields.CharField(max_length=100, null=True)  # ID из старой системы (1С)
-    
-    # Скидки и налоги
-    max_discount = fields.DecimalField(max_digits=5, decimal_places=2, default=100)  # Максимальная скидка в %
-    tax_rate = fields.DecimalField(max_digits=5, decimal_places=2, default=20)  # НДС в %
-    
-    # Алкогольные товары
-    is_alcohol = fields.BooleanField(default=False)  # alco
-    is_marked = fields.BooleanField(default=False)  # mark - маркированный товар
-    is_draught = fields.BooleanField(default=False)  # draught - разливное
-    is_bottled = fields.BooleanField(default=False)  # bottled - бутылочное
-    
-    # ЕГАИС поля
-    alc_code = fields.CharField(max_length=100, null=True)  # Алкокод продукции
-    egais_mark_code = fields.CharField(max_length=255, null=True)  # Код марки для ЕГАИС
-    egais_id = fields.CharField(max_length=100, null=True)  # Идентификатор ЕГАИС
-    gtin = fields.CharField(max_length=50, null=True)  # GTIN для маркированных товаров
-    
-    # Статус
-    is_active = fields.BooleanField(default=True)
-    created_at = fields.DatetimeField(auto_now_add=True)
-    updated_at = fields.DatetimeField(auto_now=True)
-
-    class Meta:
-        table = "products"
-
-class User(Model):
-    id = fields.IntField(pk=True)
-    username = fields.CharField(max_length=50, unique=True)
-    password_hash = fields.CharField(max_length=255)
-    is_active = fields.BooleanField(default=True)
-    created_at = fields.DatetimeField(auto_now_add=True)
-
-    class Meta:
-        table = "users"
-
-class Area(Model):
-    """Области размещения (залы, помещения, территории)"""
-    id = fields.IntField(pk=True)
-    name = fields.CharField(max_length=100)
-    description = fields.TextField(null=True)
-    capacity = fields.IntField(null=True)  # Вместимость
-    is_active = fields.BooleanField(default=True)
-    created_at = fields.DatetimeField(auto_now_add=True)
-    updated_at = fields.DatetimeField(auto_now=True)
-
-    class Meta:
-        table = "areas"
-
-class Seat(Model):
-    """Места размещения (столики, места под деревом и т.д.)"""
-    id = fields.IntField(pk=True)
-    number = fields.CharField(max_length=20)  # Номер места
-    area = fields.ForeignKeyField('models.Area', related_name='seats', on_delete=fields.CASCADE)
-    capacity = fields.IntField(default=4)  # Вместимость места
-    description = fields.TextField(null=True)
-    is_active = fields.BooleanField(default=True)
-    is_occupied = fields.BooleanField(default=False)  # Занято ли
-    created_at = fields.DatetimeField(auto_now_add=True)
-    updated_at = fields.DatetimeField(auto_now=True)
-
-    class Meta:
-        table = "seats"
+# Импорт моделей из api.models
+from api.models import CheckLog, EgaisLog, Category, Product, User, Area, Seat
 
 # Настройки безопасности
 SECRET_KEY = os.getenv("JWT_SECRET", "your-secret-key-change-in-production")
@@ -211,7 +92,7 @@ async def init_db():
     try:
         await Tortoise.init(
             db_url=f"postgres://{os.getenv('POSTGRES_USER', 'postgres')}:{os.getenv('POSTGRES_PASSWORD', 'password')}@{os.getenv('POSTGRES_HOST', 'localhost')}:{os.getenv('POSTGRES_PORT', '5432')}/{os.getenv('POSTGRES_DB', 'print_logs')}",
-            modules={'models': ['srv']}
+            modules={'models': ['api.models']}
         )
         await Tortoise.generate_schemas()
         logger.success("PostgreSQL подключен успешно")
