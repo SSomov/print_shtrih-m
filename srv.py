@@ -110,6 +110,7 @@ class Category(Model):
     id = fields.IntField(pk=True)
     name = fields.CharField(max_length=100, unique=True)
     description = fields.TextField(null=True)
+    legacy_id = fields.CharField(max_length=100, null=True)  # ID из старой системы (1С)
     is_active = fields.BooleanField(default=True)
     created_at = fields.DatetimeField(auto_now_add=True)
     updated_at = fields.DatetimeField(auto_now=True)
@@ -1840,6 +1841,7 @@ async def get_categories():
                     "id": cat.id,
                     "name": cat.name,
                     "description": cat.description,
+                    "legacy_id": cat.legacy_id,
                     "is_active": cat.is_active,
                     "created_at": cat.created_at.isoformat() if cat.created_at else None,
                     "updated_at": cat.updated_at.isoformat() if cat.updated_at else None
@@ -1851,20 +1853,27 @@ async def get_categories():
         return {"status": "error", "error": str(e)}
 
 @app.post("/api/v1/categories")
-async def create_category(name: str = Form(...), description: str = Form(None)):
+async def create_category(name: str = Form(...), description: str = Form(None), legacy_id: str = Form(None)):
     """Создать новую категорию"""
     global db_connected
     if not db_connected:
         return {"status": "error", "message": "База данных не подключена"}
     
     try:
-        category = await Category.create(name=name, description=description)
+        # Проверяем уникальность legacy_id, если он указан
+        if legacy_id:
+            existing_category = await Category.get_or_none(legacy_id=legacy_id, is_active=True)
+            if existing_category:
+                return {"status": "error", "message": f"Категория с legacy_id '{legacy_id}' уже существует"}
+        
+        category = await Category.create(name=name, description=description, legacy_id=legacy_id)
         return {
             "status": "success",
             "data": {
                 "id": category.id,
                 "name": category.name,
                 "description": category.description,
+                "legacy_id": category.legacy_id,
                 "is_active": category.is_active
             }
         }
@@ -1872,7 +1881,7 @@ async def create_category(name: str = Form(...), description: str = Form(None)):
         return {"status": "error", "error": str(e)}
 
 @app.put("/api/v1/categories/{category_id}")
-async def update_category(category_id: int, name: str = Form(...), description: str = Form(None)):
+async def update_category(category_id: int, name: str = Form(...), description: str = Form(None), legacy_id: str = Form(None)):
     """Обновить категорию"""
     global db_connected
     if not db_connected:
@@ -1883,8 +1892,15 @@ async def update_category(category_id: int, name: str = Form(...), description: 
         if not category:
             return {"status": "error", "message": "Категория не найдена"}
         
+        # Проверяем уникальность legacy_id, если он указан и изменился
+        if legacy_id and legacy_id != category.legacy_id:
+            existing_category = await Category.get_or_none(legacy_id=legacy_id, is_active=True)
+            if existing_category:
+                return {"status": "error", "message": f"Категория с legacy_id '{legacy_id}' уже существует"}
+        
         category.name = name
         category.description = description
+        category.legacy_id = legacy_id
         await category.save()
         
         return {
@@ -1893,6 +1909,7 @@ async def update_category(category_id: int, name: str = Form(...), description: 
                 "id": category.id,
                 "name": category.name,
                 "description": category.description,
+                "legacy_id": category.legacy_id,
                 "is_active": category.is_active
             }
         }
@@ -2235,7 +2252,9 @@ async def get_product(product_id: int):
 class ProductCreateRequest(BaseModel):
     name: str
     description: Optional[str] = None
-    category_id: int
+    category_id: Optional[int] = None  # ID категории
+    category_legacy_id: Optional[str] = None  # Legacy ID категории
+    category_name: Optional[str] = None  # Название категории (создастся если категории по ID нет)
     price: float
     barcode: Optional[str] = None
     article: Optional[str] = None
@@ -2260,10 +2279,29 @@ async def create_product(product_data: ProductCreateRequest):
         return {"status": "error", "message": "База данных не подключена"}
     
     try:
-        # Проверяем существование категории
-        category = await Category.get_or_none(id=product_data.category_id, is_active=True)
+        # Проверяем, что указано хотя бы одно из полей
+        if not product_data.category_id and not product_data.category_legacy_id:
+            return {"status": "error", "message": "Необходимо указать category_id или category_legacy_id"}
+        
+        # Определяем категорию
+        category = None
+        
+        # Сначала ищем по ID
+        if product_data.category_id:
+            category = await Category.get_or_none(id=product_data.category_id, is_active=True)
+        
+        # Если не нашли по ID, ищем по legacy_id
+        if not category and product_data.category_legacy_id:
+            category = await Category.get_or_none(legacy_id=product_data.category_legacy_id, is_active=True)
+        
+        # Если категория не найдена, но указано название - создаем категорию
+        if not category and product_data.category_name:
+            category = await Category.create(name=product_data.category_name, description="Автоматически создана")
+            logger.info(f"Создана новая категория: {product_data.category_name}")
+        
+        # Если категория не найдена и не создана - ошибка
         if not category:
-            return {"status": "error", "message": "Категория не найдена"}
+            return {"status": "error", "message": "Категория не найдена. Укажите category_name для создания новой категории."}
         
         # Проверяем уникальность legacy_id, если он указан
         if product_data.legacy_id:
@@ -2321,10 +2359,25 @@ async def update_product(product_id: int, product_data: ProductCreateRequest):
         if not product:
             return {"status": "error", "message": "Товар не найден"}
         
-        # Проверяем существование категории
-        category = await Category.get_or_none(id=product_data.category_id, is_active=True)
+        # Определяем категорию
+        category = None
+        
+        # Сначала ищем по ID
+        if product_data.category_id:
+            category = await Category.get_or_none(id=product_data.category_id, is_active=True)
+        
+        # Если не нашли по ID, ищем по legacy_id
+        if not category and product_data.category_legacy_id:
+            category = await Category.get_or_none(legacy_id=product_data.category_legacy_id, is_active=True)
+        
+        # Если категория не найдена, но указано название - создаем категорию
+        if not category and product_data.category_name:
+            category = await Category.create(name=product_data.category_name, description="Автоматически создана")
+            logger.info(f"Создана новая категория: {product_data.category_name}")
+        
+        # Если категория не найдена и не создана - оставляем текущую
         if not category:
-            return {"status": "error", "message": "Категория не найдена"}
+            category = product.category
         
         # Проверяем уникальность legacy_id при обновлении, если он указан и изменился
         if product_data.legacy_id and product_data.legacy_id != product.legacy_id:
