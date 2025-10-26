@@ -5,6 +5,29 @@ const api = axios.create({
   timeout: 10000
 })
 
+// Добавляем interceptor для отладки
+api.interceptors.request.use(
+  config => {
+    console.log('API Request:', config.method.toUpperCase(), config.url, config.data || config.params)
+    return config
+  },
+  error => {
+    console.error('API Request Error:', error)
+    return Promise.reject(error)
+  }
+)
+
+api.interceptors.response.use(
+  response => {
+    console.log('API Response:', response.config.method.toUpperCase(), response.config.url, response.data)
+    return response
+  },
+  error => {
+    console.error('API Response Error:', error.response?.status, error.response?.data || error.message)
+    return Promise.reject(error)
+  }
+)
+
 // API для чеков
 export const checkApi = {
   // Пробитие чека наличными
@@ -64,6 +87,27 @@ export const printApi = {
   
   // Печать счета
   printInvoice: (order) => api.post('/print/invoice', order)
+}
+
+// API для авторизации
+export const authApi = {
+  // Вход в систему
+  login: (username, password) => api.post('/auth/login', { username, password })
+}
+
+// API для управления пользователями
+export const usersApi = {
+  // Получить список пользователей
+  getUsers: () => api.get('/users'),
+  
+  // Создать нового пользователя
+  createUser: (userData) => api.post('/users', userData),
+  
+  // Обновить пользователя
+  updateUser: (userId, userData) => api.put(`/users/${userId}`, userData),
+  
+  // Удалить пользователя (деактивация)
+  deleteUser: (userId) => api.delete(`/users/${userId}`)
 }
 
 export default api

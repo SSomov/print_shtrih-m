@@ -13,7 +13,11 @@ load_dotenv()
 def get_password_hash(password: str) -> str:
     """Хеширование пароля"""
     from passlib.context import CryptContext
-    pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+    pwd_context = CryptContext(
+        schemes=["pbkdf2_sha512"],
+        deprecated="auto",
+        pbkdf2_sha512__rounds=29000
+    )
     return pwd_context.hash(password)
 
 # Импортируем модели из srv (после определения функций)

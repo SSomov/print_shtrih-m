@@ -196,7 +196,12 @@ SECRET_KEY = os.getenv("JWT_SECRET", "your-secret-key-change-in-production")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 дней
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# Настройка PBKDF2-HMAC-SHA512 для passlib
+pwd_context = CryptContext(
+    schemes=["pbkdf2_sha512"],
+    deprecated="auto",
+    pbkdf2_sha512__rounds=29000
+)
 security = HTTPBearer()
 
 # Инициализация Tortoise ORM
@@ -320,7 +325,20 @@ async def startup_event():
     db_connected = await init_db()
     
     if db_connected:
-        # Проверяем, нужно ли создавать тестовые данные
+        # Всегда создаем тестового пользователя если его нет
+        try:
+            count = await User.all().count()
+            if count == 0:
+                user = await User.create(
+                    username="admin",
+                    password_hash=get_password_hash("admin"),
+                    is_active=True
+                )
+                logger.info(f"Создан тестовый пользователь: {user.username}")
+        except Exception as e:
+            logger.error(f"Ошибка создания пользователя: {e}")
+        
+        # Проверяем, нужно ли создавать полный набор тестовых данных
         init_test_data = os.getenv('INIT_TEST_DATA', 'false').lower() == 'true'
         
         if init_test_data:
@@ -1638,6 +1656,16 @@ class LoginRequest(BaseModel):
     username: str
     password: str
 
+class UserCreateRequest(BaseModel):
+    username: str
+    password: str
+    is_active: bool = True
+
+class UserUpdateRequest(BaseModel):
+    username: Optional[str] = None
+    password: Optional[str] = None
+    is_active: Optional[bool] = None
+
 @app.post("/api/v1/auth/login")
 async def login(login_data: LoginRequest):
     """Авторизация пользователя"""
@@ -1673,6 +1701,124 @@ async def login(login_data: LoginRequest):
             "status": "error",
             "message": "Ошибка авторизации"
         }
+
+# ========== УПРАВЛЕНИЕ ПОЛЬЗОВАТЕЛЯМИ ==========
+
+@app.get("/api/v1/users")
+async def get_users():
+    """Получить список всех пользователей"""
+    global db_connected
+    if not db_connected:
+        return {"status": "error", "message": "База данных не подключена"}
+    
+    try:
+        users = await User.all().order_by('username')
+        return {
+            "status": "success",
+            "data": [
+                {
+                    "id": user.id,
+                    "username": user.username,
+                    "is_active": user.is_active,
+                    "created_at": user.created_at.isoformat() if user.created_at else None
+                }
+                for user in users
+            ]
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+@app.post("/api/v1/users")
+async def create_user(request: UserCreateRequest):
+    """Создать нового пользователя"""
+    global db_connected
+    if not db_connected:
+        return {"status": "error", "message": "База данных не подключена"}
+    
+    try:
+        # Проверяем, существует ли пользователь
+        existing_user = await User.get_or_none(username=request.username)
+        if existing_user:
+            return {"status": "error", "message": "Пользователь с таким именем уже существует"}
+        
+        # Создаем пользователя
+        user = await User.create(
+            username=request.username,
+            password_hash=get_password_hash(request.password),
+            is_active=request.is_active
+        )
+        
+        return {
+            "status": "success",
+            "data": {
+                "id": user.id,
+                "username": user.username,
+                "is_active": user.is_active,
+                "created_at": user.created_at.isoformat() if user.created_at else None
+            }
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+@app.put("/api/v1/users/{user_id}")
+async def update_user(user_id: int, request: UserUpdateRequest):
+    """Обновить пользователя"""
+    global db_connected
+    if not db_connected:
+        return {"status": "error", "message": "База данных не подключена"}
+    
+    try:
+        user = await User.get_or_none(id=user_id)
+        if not user:
+            return {"status": "error", "message": "Пользователь не найден"}
+        
+        # Обновляем поля
+        if request.username is not None:
+            # Проверяем уникальность имени
+            existing_user = await User.get_or_none(username=request.username)
+            if existing_user and existing_user.id != user_id:
+                return {"status": "error", "message": "Пользователь с таким именем уже существует"}
+            user.username = request.username
+        
+        if request.password is not None and request.password:
+            user.password_hash = get_password_hash(request.password)
+        
+        if request.is_active is not None:
+            user.is_active = request.is_active
+        
+        await user.save()
+        
+        return {
+            "status": "success",
+            "data": {
+                "id": user.id,
+                "username": user.username,
+                "is_active": user.is_active,
+                "created_at": user.created_at.isoformat() if user.created_at else None
+            }
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+@app.delete("/api/v1/users/{user_id}")
+async def delete_user(user_id: int):
+    """Удалить пользователя (деактивация)"""
+    global db_connected
+    if not db_connected:
+        return {"status": "error", "message": "База данных не подключена"}
+    
+    try:
+        user = await User.get_or_none(id=user_id)
+        if not user:
+            return {"status": "error", "message": "Пользователь не найден"}
+        
+        # Деактивируем пользователя
+        user.is_active = False
+        await user.save()
+        
+        return {"status": "success", "message": "Пользователь деактивирован"}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
 
 # ========== СПРАВОЧНИКИ ==========
 
