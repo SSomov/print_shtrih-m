@@ -7,28 +7,48 @@
     <el-container v-else>
       <el-header>
         <div class="header-left">
-          <h1>Print Shtrih Client</h1>
+          <Logo />
+          <span class="app-title">Ресторан</span>
         </div>
-        <el-menu mode="horizontal" :default-active="activeTab" @select="handleMenuSelect">
-          <el-menu-item index="checks">Чеки</el-menu-item>
-          <el-menu-item index="egais">ЕГАИС</el-menu-item>
-          <el-menu-item index="egais-xml">ЕГАИС XML</el-menu-item>
-          <el-menu-item index="products">Товары</el-menu-item>
-          <el-menu-item index="kkt">ККТ</el-menu-item>
-          <el-menu-item index="users">Пользователи</el-menu-item>
-          <el-menu-item index="logs">Логи</el-menu-item>
-          <el-menu-item index="stats">Статистика</el-menu-item>
+        <el-menu mode="horizontal" :default-active="activeTab" @select="handleMenuSelect" class="main-menu">
+          <el-menu-item index="checks">
+            <el-icon><Document /></el-icon>
+            <span>Чеки</span>
+          </el-menu-item>
+          <el-menu-item index="egais">
+            <el-icon><Box /></el-icon>
+            <span>ЕГАИС</span>
+          </el-menu-item>
+          <el-menu-item index="products">
+            <el-icon><ShoppingBag /></el-icon>
+            <span>Товары</span>
+          </el-menu-item>
+          <el-menu-item index="kkt">
+            <el-icon><Monitor /></el-icon>
+            <span>ККТ</span>
+          </el-menu-item>
+          <el-menu-item index="users">
+            <el-icon><User /></el-icon>
+            <span>Пользователи</span>
+          </el-menu-item>
+          <el-menu-item index="logs">
+            <el-icon><Document /></el-icon>
+            <span>Логи</span>
+          </el-menu-item>
+          <el-menu-item index="stats">
+            <el-icon><DataAnalysis /></el-icon>
+            <span>Статистика</span>
+          </el-menu-item>
         </el-menu>
         <div class="header-right">
-          <span style="margin-right: 10px;">{{ username }}</span>
-          <el-button size="small" @click="handleLogout">Выход</el-button>
+          <span class="username">{{ username }}</span>
+          <el-button size="small" @click="handleLogout" type="danger" plain>Выход</el-button>
         </div>
       </el-header>
       
       <el-main>
         <CheckForm v-if="activeTab === 'checks'" @check-created="handleCheckCreated" />
         <EgaisForm v-if="activeTab === 'egais'" @egais-sent="handleEgaisSent" />
-        <EgaisXmlUploadForm v-if="activeTab === 'egais-xml'" />
         <ProductsView v-if="activeTab === 'products'" />
         <KktInfo v-if="activeTab === 'kkt'" />
         <UsersView v-if="activeTab === 'users'" />
@@ -49,7 +69,9 @@ import UsersView from './components/UsersView.vue'
 import LogsView from './components/LogsView.vue'
 import StatsView from './components/StatsView.vue'
 import LoginForm from './components/LoginForm.vue'
+import Logo from './components/Logo.vue'
 import { ElMessage } from 'element-plus'
+import { Document, Box, ShoppingBag, Monitor, User, DataAnalysis } from '@element-plus/icons-vue'
 
 export default {
   name: 'App',
@@ -62,7 +84,14 @@ export default {
     UsersView,
     LogsView,
     StatsView,
-    LoginForm
+    LoginForm,
+    Logo,
+    Document,
+    Box,
+    ShoppingBag,
+    Monitor,
+    User,
+    DataAnalysis
   },
   data() {
     return {
@@ -121,26 +150,62 @@ export default {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 20px;
+  padding: 0 15px;
+  height: 60px;
 }
 
 .header-left {
   display: flex;
   align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.app-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: white;
 }
 
 .header-right {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
+  flex-shrink: 0;
+  margin-left: 10px;
 }
 
-.el-header h1 {
-  margin: 0;
-  margin-right: 20px;
+.username {
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.main-menu {
+  flex: 1;
+  min-width: 0;
+  max-width: calc(100vw - 400px);
+  overflow-x: auto;
+}
+
+.main-menu .el-menu-item {
+  padding: 0 12px;
+  font-size: 14px;
+}
+
+.main-menu .el-icon {
+  margin-right: 4px;
 }
 
 .el-main {
   padding: 20px;
+}
+
+/* Скрываем scrollbar для menu */
+.main-menu::-webkit-scrollbar {
+  height: 0;
+}
+
+.main-menu {
+  scrollbar-width: none;
 }
 </style>

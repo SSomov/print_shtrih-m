@@ -71,6 +71,12 @@ async def create_default_categories(Category):
 async def create_sample_products(Category, Product):
     """Создать примеры товаров"""
     try:
+        # Проверяем, есть ли уже товары
+        count = await Product.all().count()
+        if count > 0:
+            logger.info(f"Товары уже существуют: {count}")
+            return
+        
         categories = {}
         for cat in await Category.all():
             categories[cat.name] = cat
