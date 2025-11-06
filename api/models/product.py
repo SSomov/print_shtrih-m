@@ -6,7 +6,7 @@ class Product(Model):
     id = fields.IntField(pk=True)
     name = fields.CharField(max_length=255)
     description = fields.TextField(null=True)
-    category = fields.ForeignKeyField('models.Category', related_name='products', on_delete=fields.CASCADE)
+    category = fields.ForeignKeyField('models.Category', related_name='products', on_delete=fields.CASCADE, null=True)  # Может быть None для товаров без категории
     
     # Основные поля товара
     price = fields.DecimalField(max_digits=10, decimal_places=2)

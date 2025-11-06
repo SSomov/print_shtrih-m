@@ -2228,13 +2228,164 @@ async def create_product(product_data: ProductCreateRequest):
         return {"status": "error", "message": "База данных не подключена"}
     
     try:
-        logger.info(f"Создание/обновление продукта: name={product_data.name}, category_id={product_data.category_id}, category_legacy_id={product_data.category_legacy_id}, legacy_id={product_data.legacy_id}")
+        logger.info(f"Создание/обновление продукта: name={product_data.name}, category_id={product_data.category_id}, category_legacy_id={product_data.category_legacy_id}, legacy_id={product_data.legacy_id}, legacy_path={product_data.legacy_path}")
         
         # Определяем категорию
         category = None
         
+        # Если указан legacy_path
+        if product_data.legacy_path and product_data.name:
+            legacy_path_str = str(product_data.legacy_path).strip()
+            name_str = str(product_data.name).strip()
+            category_name_str = str(product_data.category_name).strip() if product_data.category_name else None
+            
+            # Если name равен legacy_path - это товар без категории
+            if name_str == legacy_path_str:
+                logger.info(f"name == legacy_path: товар без категории, legacy_path={legacy_path_str}")
+                category = None  # Товар без категории
+            else:
+                # Вычитаем название товара из legacy_path
+                # Проверяем, заканчивается ли legacy_path на name
+                if legacy_path_str.endswith(name_str):
+                    # Убираем name и разделитель "/" если есть
+                    category_path_str = legacy_path_str[:-len(name_str)].rstrip('/').strip()
+                    
+                    if not category_path_str:
+                        # После вычитания name ничего не осталось - товар без категории
+                        logger.info(f"После вычитания name из legacy_path ничего не осталось: товар без категории")
+                        category = None
+                    else:
+                        # Если указан category_name - это последняя категория в пути
+                        if category_name_str:
+                            # Вычитаем category_name из конца оставшегося пути
+                            if category_path_str.endswith(category_name_str):
+                                # Убираем category_name и разделитель "/" если есть
+                                parent_path_str = category_path_str[:-len(category_name_str)].rstrip('/').strip()
+                                
+                                # Создаем/находим родительские категории по пути
+                                parent_category = None
+                                if parent_path_str:
+                                    parent_path = [p.strip() for p in parent_path_str.split('/') if p.strip()]
+                                    logger.info(f"Парсинг legacy_path: путь родительских категорий={parent_path}, последняя категория из category_name={category_name_str}")
+                                    
+                                    for cat_name in parent_path:
+                                        if parent_category:
+                                            existing_cat = await Category.get_or_none(name=cat_name, parent_id=parent_category.id, is_active=True)
+                                        else:
+                                            existing_cat = await Category.get_or_none(name=cat_name, parent_id__isnull=True, is_active=True)
+                                        
+                                        if existing_cat:
+                                            parent_category = existing_cat
+                                            logger.info(f"Найдена категория: {cat_name}, id={parent_category.id}")
+                                        else:
+                                            parent_category = await Category.create(
+                                                name=cat_name,
+                                                parent=parent_category,
+                                                description="Автоматически создана из legacy_path"
+                                            )
+                                            logger.info(f"Создана категория: {cat_name}, id={parent_category.id}, parent_id={parent_category.parent_id}")
+                                
+                                # Создаем/находим последнюю категорию из category_name
+                                if parent_category:
+                                    existing_cat = await Category.get_or_none(name=category_name_str, parent_id=parent_category.id, is_active=True)
+                                else:
+                                    existing_cat = await Category.get_or_none(name=category_name_str, parent_id__isnull=True, is_active=True)
+                                
+                                if existing_cat:
+                                    category = existing_cat
+                                    logger.info(f"Найдена последняя категория: {category_name_str}, id={category.id}")
+                                else:
+                                    category = await Category.create(
+                                        name=category_name_str,
+                                        parent=parent_category,
+                                        description="Автоматически создана из legacy_path"
+                                    )
+                                    logger.info(f"Создана последняя категория: {category_name_str}, id={category.id}, parent_id={category.parent_id}")
+                            else:
+                                # category_name не найден в конце пути - используем весь путь как категории
+                                logger.warning(f"category_name не найден в конце пути: category_path_str='{category_path_str}', category_name='{category_name_str}'")
+                                category_path = [p.strip() for p in category_path_str.split('/') if p.strip()]
+                                logger.info(f"Парсинг legacy_path: весь путь как категории={category_path}")
+                                
+                                parent_category = None
+                                for cat_name in category_path:
+                                    if parent_category:
+                                        existing_cat = await Category.get_or_none(name=cat_name, parent_id=parent_category.id, is_active=True)
+                                    else:
+                                        existing_cat = await Category.get_or_none(name=cat_name, parent_id__isnull=True, is_active=True)
+                                    
+                                    if existing_cat:
+                                        parent_category = existing_cat
+                                        logger.info(f"Найдена категория: {cat_name}, id={parent_category.id}")
+                                    else:
+                                        parent_category = await Category.create(
+                                            name=cat_name,
+                                            parent=parent_category,
+                                            description="Автоматически создана из legacy_path"
+                                        )
+                                        logger.info(f"Создана категория: {cat_name}, id={parent_category.id}, parent_id={parent_category.parent_id}")
+                                
+                                category = parent_category
+                        else:
+                            # category_name не указан - разбиваем весь оставшийся путь на категории
+                            category_path = [p.strip() for p in category_path_str.split('/') if p.strip()]
+                            logger.info(f"Парсинг legacy_path: путь категорий={category_path}, название продукта из name={name_str}")
+                            
+                            # Создаем/находим категории по пути
+                            parent_category = None
+                            for cat_name in category_path:
+                                if parent_category:
+                                    existing_cat = await Category.get_or_none(name=cat_name, parent_id=parent_category.id, is_active=True)
+                                else:
+                                    existing_cat = await Category.get_or_none(name=cat_name, parent_id__isnull=True, is_active=True)
+                                
+                                if existing_cat:
+                                    parent_category = existing_cat
+                                    logger.info(f"Найдена категория: {cat_name}, id={parent_category.id}")
+                                else:
+                                    parent_category = await Category.create(
+                                        name=cat_name,
+                                        parent=parent_category,
+                                        description="Автоматически создана из legacy_path"
+                                    )
+                                    logger.info(f"Создана категория: {cat_name}, id={parent_category.id}, parent_id={parent_category.parent_id}")
+                            
+                            category = parent_category
+                else:
+                    # legacy_path не заканчивается на name - возможно, name не совпадает с концом пути
+                    logger.warning(f"legacy_path не заканчивается на name: legacy_path='{legacy_path_str}', name='{name_str}'")
+                    # Пытаемся найти name в конце legacy_path через "/"
+                    if '/' in legacy_path_str:
+                        # Если name не найден в конце, считаем весь путь категориями
+                        category_path = [p.strip() for p in legacy_path_str.split('/') if p.strip()]
+                        logger.info(f"name не найден в конце legacy_path, весь путь как категории: {category_path}")
+                        
+                        parent_category = None
+                        for cat_name in category_path:
+                            if parent_category:
+                                existing_cat = await Category.get_or_none(name=cat_name, parent_id=parent_category.id, is_active=True)
+                            else:
+                                existing_cat = await Category.get_or_none(name=cat_name, parent_id__isnull=True, is_active=True)
+                            
+                            if existing_cat:
+                                parent_category = existing_cat
+                                logger.info(f"Найдена категория: {cat_name}, id={parent_category.id}")
+                            else:
+                                parent_category = await Category.create(
+                                    name=cat_name,
+                                    parent=parent_category,
+                                    description="Автоматически создана из legacy_path"
+                                )
+                                logger.info(f"Создана категория: {cat_name}, id={parent_category.id}, parent_id={parent_category.parent_id}")
+                        
+                        category = parent_category
+                    else:
+                        # legacy_path не содержит "/" и не равен name - товар без категории
+                        logger.info(f"legacy_path не содержит '/' и не равен name: товар без категории")
+                        category = None
+        
         # Если указан category_id - ищем по ID
-        if product_data.category_id:
+        elif product_data.category_id:
             category = await Category.get_or_none(id=product_data.category_id, is_active=True)
             if not category:
                 logger.error(f"Категория с ID {product_data.category_id} не найдена")
@@ -2264,10 +2415,10 @@ async def create_product(product_data: ProductCreateRequest):
                 )
                 logger.info(f"Создана новая категория с legacy_id '{product_data.category_legacy_id}': '{product_data.category_name}'")
         
-        # Если категория не определена - ошибка
-        if not category:
+        # Если категория не определена и это не товар без категории - ошибка
+        if not category and not (product_data.legacy_path and product_data.name and str(product_data.name).strip() == str(product_data.legacy_path).strip()):
             logger.error("Категория не определена")
-            return {"status": "error", "message": "Необходимо указать category_id или category_legacy_id"}
+            return {"status": "error", "message": "Необходимо указать category_id, category_legacy_id или legacy_path с иерархией"}
         
         # Обработка продукта: если указан legacy_id и он не пустой - upsert
         if product_data.legacy_id and str(product_data.legacy_id).strip():
