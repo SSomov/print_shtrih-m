@@ -83,20 +83,20 @@ async def create_sample_products(Category, Product):
         
         products = [
             {'name': 'Кока-кола 0.33л', 'description': 'Газированный напиток', 'category': 'Напитки', 
-             'price': 120.0, 'barcode': '4607050690012', 'article': 'COCA_033'},
+             'price': 120.0, 'barcode': '4607050690012', 'legacy_path': 'COCA_033'},
             {'name': 'Сок яблочный 0.2л', 'description': 'Натуральный яблочный сок', 'category': 'Напитки', 
-             'price': 80.0, 'barcode': '4607050690029', 'article': 'JUICE_APPLE'},
+             'price': 80.0, 'barcode': '4607050690029', 'legacy_path': 'JUICE_APPLE'},
             
             {'name': 'Картофель фри', 'description': 'Жареный картофель фри', 'category': 'Закуски', 
-             'price': 180.0, 'article': 'FRIES_001'},
+             'price': 180.0, 'legacy_path': 'FRIES_001'},
             {'name': 'Куриные крылышки', 'description': 'Острые куриные крылышки', 'category': 'Закуски', 
-             'price': 320.0, 'article': 'WINGS_001'},
+             'price': 320.0, 'legacy_path': 'WINGS_001'},
             
             {'name': 'Водка Premium 0.5л', 'description': 'Премиальная водка', 'category': 'Алкоголь', 
-             'price': 1200.0, 'barcode': '4607001234567', 'article': 'VODKA_PREM', 
+             'price': 1200.0, 'barcode': '4607001234567', 'legacy_path': 'VODKA_PREM', 
              'is_alcohol': True, 'is_marked': True, 'is_bottled': True, 'max_discount': 0},
             {'name': 'Пиво светлое 0.5л', 'description': 'Светлое пиво разливное', 'category': 'Пиво', 
-             'price': 180.0, 'barcode': '4607001234574', 'article': 'BEER_LIGHT', 'unit': 'л',
+             'price': 180.0, 'barcode': '4607001234574', 'legacy_path': 'BEER_LIGHT', 'unit': 'л',
              'is_alcohol': True, 'is_draught': True}
         ]
         

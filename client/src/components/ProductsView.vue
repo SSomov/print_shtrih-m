@@ -46,13 +46,22 @@
           <template #header>
             <div class="clearfix">
             <span>Товары</span>
-            <el-button 
-              style="float: right; padding: 3px 0" 
-              type="text" 
-              @click="addProduct"
-            >
-              <el-icon><Plus /></el-icon> Добавить товар
-            </el-button>
+            <div style="float: right;">
+              <el-button 
+                style="padding: 3px 0; margin-right: 10px;" 
+                type="text" 
+                @click="refresh"
+              >
+                <el-icon><Refresh /></el-icon> Обновить
+              </el-button>
+              <el-button 
+                style="padding: 3px 0" 
+                type="text" 
+                @click="addProduct"
+              >
+                <el-icon><Plus /></el-icon> Добавить товар
+              </el-button>
+            </div>
             </div>
           </template>
 
@@ -114,6 +123,21 @@
         <el-form-item label="Название">
           <el-input v-model="categoryForm.name" placeholder="Введите название категории" />
         </el-form-item>
+        <el-form-item label="Родительская категория">
+          <el-select v-model="categoryForm.parent_id" placeholder="Выберите родительскую категорию" clearable style="width: 100%">
+            <el-option 
+              :label="'Корневая категория'" 
+              :value="0"
+            />
+            <el-option 
+              v-for="cat in flatCategories" 
+              :key="cat.id" 
+              :label="cat.displayName" 
+              :value="cat.id"
+              :disabled="editingCategory && cat.id === editingCategory.id"
+            />
+          </el-select>
+        </el-form-item>
         <el-form-item label="Описание">
           <el-input 
             v-model="categoryForm.description" 
@@ -159,8 +183,8 @@
             <el-form-item label="Штрихкод">
               <el-input v-model="productForm.barcode" placeholder="EAN код" />
             </el-form-item>
-            <el-form-item label="Артикул">
-              <el-input v-model="productForm.article" placeholder="Артикул товара" />
+            <el-form-item label="Legacy Path">
+              <el-input v-model="productForm.legacy_path" placeholder="Путь из старой системы" />
             </el-form-item>
             <el-form-item label="Единица измерения">
               <el-input v-model="productForm.unit" placeholder="шт" />
@@ -214,14 +238,15 @@
 
 <script>
 import api from '../api/index.js'
-import { Plus, Edit, Delete } from '@element-plus/icons-vue'
+import { Plus, Edit, Delete, Refresh } from '@element-plus/icons-vue'
 
 export default {
   name: 'ProductsView',
   components: {
     Plus,
     Edit,
-    Delete
+    Delete,
+    Refresh
   },
   data() {
     return {
@@ -243,7 +268,8 @@ export default {
       
       categoryForm: {
         name: '',
-        description: ''
+        description: '',
+        parent_id: null
       },
       
       productForm: {
@@ -252,7 +278,7 @@ export default {
         category_id: null,
         price: 0,
         barcode: '',
-        article: '',
+        legacy_path: '',
         unit: 'шт',
         max_discount: 100,
         tax_rate: 20,
@@ -268,12 +294,39 @@ export default {
   },
   
   computed: {
+    // Плоский список всех категорий для выбора родительской
+    flatCategories() {
+      const flatten = (tree, level = 0) => {
+        let result = []
+        for (const cat of tree) {
+          result.push({
+            ...cat,
+            level: level,
+            displayName: '  '.repeat(level) + cat.name
+          })
+          if (cat.children && cat.children.length > 0) {
+            result = result.concat(flatten(cat.children, level + 1))
+          }
+        }
+        return result
+      }
+      return flatten(this.categoriesTree)
+    },
+    
+    // Иерархическая структура категорий для дерева
     categoriesTree() {
-      return this.categories.map(cat => ({
-        id: cat.id,
-        name: cat.name,
-        description: cat.description
-      }))
+      const buildTree = (categories, parentId = null) => {
+        return categories
+          .filter(cat => (cat.parent_id === null && parentId === null) || (cat.parent_id === parentId))
+          .map(cat => ({
+            id: cat.id,
+            name: cat.name,
+            description: cat.description,
+            parent_id: cat.parent_id,
+            children: buildTree(categories, cat.id)
+          }))
+      }
+      return buildTree(this.categories)
     }
   },
   
@@ -283,6 +336,15 @@ export default {
   },
   
   methods: {
+    async refresh() {
+      this.$message.info('Обновление данных...')
+      await Promise.all([
+        this.loadCategories(),
+        this.loadProducts()
+      ])
+      this.$message.success('Данные обновлены')
+    },
+    
     async loadCategories() {
       try {
         const response = await api.get('/categories')
@@ -335,7 +397,7 @@ export default {
     // Категории
     addCategory() {
       this.editingCategory = null
-      this.categoryForm = { name: '', description: '' }
+      this.categoryForm = { name: '', description: '', parent_id: null }
       this.showCategoryForm = true
     },
     
@@ -343,7 +405,8 @@ export default {
       this.editingCategory = category
       this.categoryForm = {
         name: category.name,
-        description: category.description || ''
+        description: category.description || '',
+        parent_id: category.parent_id || 0
       }
       this.showCategoryForm = true
     },
@@ -356,6 +419,19 @@ export default {
           formData.append('description', this.categoryForm.description)
         }
         
+        // Обработка parent_id
+        if (this.categoryForm.parent_id !== null && this.categoryForm.parent_id !== undefined) {
+          if (this.categoryForm.parent_id === 0) {
+            // Корневая категория - отправляем 0 для обновления, для создания не отправляем
+            if (this.editingCategory) {
+              formData.append('parent_id', '0')
+            }
+            // При создании не отправляем parent_id, будет создана корневая категория
+          } else {
+            formData.append('parent_id', this.categoryForm.parent_id.toString())
+          }
+        }
+        
         if (this.editingCategory) {
           await api.put(`/categories/${this.editingCategory.id}`, formData)
           this.$message.success('Категория обновлена')
@@ -366,7 +442,7 @@ export default {
         
         this.showCategoryForm = false
         this.editingCategory = null
-        this.categoryForm = { name: '', description: '' }
+        this.categoryForm = { name: '', description: '', parent_id: null }
         this.loadCategories()
       } catch (error) {
         this.$message.error('Ошибка сохранения категории: ' + error.message)
@@ -454,7 +530,7 @@ export default {
         category_id: this.selectedCategory ? this.selectedCategory.id : null,
         price: 0,
         barcode: '',
-        article: '',
+        legacy_path: '',
         unit: 'шт',
         max_discount: 100,
         tax_rate: 20,

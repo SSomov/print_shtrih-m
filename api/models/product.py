@@ -11,7 +11,7 @@ class Product(Model):
     # Основные поля товара
     price = fields.DecimalField(max_digits=10, decimal_places=2)
     barcode = fields.CharField(max_length=50, null=True)  # EAN
-    article = fields.CharField(max_length=50, null=True)  # Артикул
+    legacy_path = fields.CharField(max_length=120, null=True)  # Путь из старой системы
     unit = fields.CharField(max_length=20, default="шт")  # Единица измерения
     legacy_id = fields.CharField(max_length=100, null=True)  # ID из старой системы (1С)
     

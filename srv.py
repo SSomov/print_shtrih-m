@@ -1733,6 +1733,7 @@ async def get_categories():
                     "name": cat.name,
                     "description": cat.description,
                     "legacy_id": cat.legacy_id,
+                    "parent_id": cat.parent_id,
                     "is_active": cat.is_active,
                     "created_at": cat.created_at.isoformat() if cat.created_at else None,
                     "updated_at": cat.updated_at.isoformat() if cat.updated_at else None
@@ -1744,7 +1745,7 @@ async def get_categories():
         return {"status": "error", "error": str(e)}
 
 @app.post("/api/v1/categories")
-async def create_category(name: str = Form(...), description: str = Form(None), legacy_id: str = Form(None)):
+async def create_category(name: str = Form(...), description: str = Form(None), legacy_id: str = Form(None), parent_id: int = Form(None)):
     """Создать новую категорию"""
     global db_connected
     if not db_connected:
@@ -1757,7 +1758,14 @@ async def create_category(name: str = Form(...), description: str = Form(None), 
             if existing_category:
                 return {"status": "error", "message": f"Категория с legacy_id '{legacy_id}' уже существует"}
         
-        category = await Category.create(name=name, description=description, legacy_id=legacy_id)
+        # Проверяем родительскую категорию, если указана
+        parent = None
+        if parent_id:
+            parent = await Category.get_or_none(id=parent_id, is_active=True)
+            if not parent:
+                return {"status": "error", "message": f"Родительская категория с ID {parent_id} не найдена"}
+        
+        category = await Category.create(name=name, description=description, legacy_id=legacy_id, parent=parent)
         return {
             "status": "success",
             "data": {
@@ -1765,6 +1773,7 @@ async def create_category(name: str = Form(...), description: str = Form(None), 
                 "name": category.name,
                 "description": category.description,
                 "legacy_id": category.legacy_id,
+                "parent_id": category.parent_id,
                 "is_active": category.is_active
             }
         }
@@ -1772,7 +1781,7 @@ async def create_category(name: str = Form(...), description: str = Form(None), 
         return {"status": "error", "error": str(e)}
 
 @app.put("/api/v1/categories/{category_id}")
-async def update_category(category_id: int, name: str = Form(...), description: str = Form(None), legacy_id: str = Form(None)):
+async def update_category(category_id: int, name: str = Form(...), description: str = Form(None), legacy_id: str = Form(None), parent_id: int = Form(None)):
     """Обновить категорию"""
     global db_connected
     if not db_connected:
@@ -1789,9 +1798,25 @@ async def update_category(category_id: int, name: str = Form(...), description: 
             if existing_category:
                 return {"status": "error", "message": f"Категория с legacy_id '{legacy_id}' уже существует"}
         
+        # Проверяем родительскую категорию, если указана
+        parent = None
+        if parent_id is not None:
+            if parent_id == 0:
+                # Устанавливаем в None (корневая категория)
+                parent = None
+            else:
+                # Проверяем, что родительская категория существует и не является самой категорией
+                if parent_id == category_id:
+                    return {"status": "error", "message": "Категория не может быть родителем самой себя"}
+                parent = await Category.get_or_none(id=parent_id, is_active=True)
+                if not parent:
+                    return {"status": "error", "message": f"Родительская категория с ID {parent_id} не найдена"}
+        
         category.name = name
         category.description = description
         category.legacy_id = legacy_id
+        if parent_id is not None:
+            category.parent = parent
         await category.save()
         
         return {
@@ -1801,6 +1826,7 @@ async def update_category(category_id: int, name: str = Form(...), description: 
                 "name": category.name,
                 "description": category.description,
                 "legacy_id": category.legacy_id,
+                "parent_id": category.parent_id,
                 "is_active": category.is_active
             }
         }
@@ -2063,11 +2089,11 @@ async def get_products(category_id: int = None, category_legacy_id: str = None, 
                     }
                 }
         
-        # Поиск по названию или артикулу
+        # Поиск по названию, legacy_path или штрихкоду
         if search:
             base_query = base_query.filter(
                 Q(name__icontains=search) | 
-                Q(article__icontains=search) |
+                Q(legacy_path__icontains=search) |
                 Q(barcode__icontains=search)
             )
         
@@ -2103,7 +2129,7 @@ async def get_products(category_id: int = None, category_legacy_id: str = None, 
                     },
                     "price": float(prod.price),
                     "barcode": prod.barcode,
-                    "article": prod.article,
+                    "legacy_path": prod.legacy_path,
                     "unit": prod.unit,
                     "legacy_id": prod.legacy_id,
                     "max_discount": float(prod.max_discount),
@@ -2155,7 +2181,7 @@ async def get_product(product_id: int):
                 },
                 "price": float(product.price),
                 "barcode": product.barcode,
-                "article": product.article,
+                "legacy_path": product.legacy_path,
                 "unit": product.unit,
                 "legacy_id": product.legacy_id,
                 "max_discount": float(product.max_discount),
@@ -2181,7 +2207,7 @@ class ProductCreateRequest(BaseModel):
     category_name: Optional[str] = None  # Название категории (создастся если категории по ID нет)
     price: float
     barcode: Optional[str] = None
-    article: Optional[str] = None
+    legacy_path: Optional[str] = None
     unit: str = "шт"
     legacy_id: Optional[str] = None  # ID из старой системы (1С)
     max_discount: float = 100
@@ -2196,66 +2222,128 @@ class ProductCreateRequest(BaseModel):
 
 @app.post("/api/v1/products")
 async def create_product(product_data: ProductCreateRequest):
-    """Создать новый товар"""
+    """Создать или обновить товар (upsert по legacy_id)"""
     global db_connected
     if not db_connected:
         return {"status": "error", "message": "База данных не подключена"}
     
     try:
-        # Проверяем, что указано хотя бы одно из полей
-        if not product_data.category_id and not product_data.category_legacy_id:
-            return {"status": "error", "message": "Необходимо указать category_id или category_legacy_id"}
+        logger.info(f"Создание/обновление продукта: name={product_data.name}, category_id={product_data.category_id}, category_legacy_id={product_data.category_legacy_id}, legacy_id={product_data.legacy_id}")
         
         # Определяем категорию
         category = None
         
-        # Сначала ищем по ID
+        # Если указан category_id - ищем по ID
         if product_data.category_id:
             category = await Category.get_or_none(id=product_data.category_id, is_active=True)
+            if not category:
+                logger.error(f"Категория с ID {product_data.category_id} не найдена")
+                return {"status": "error", "message": f"Категория с ID {product_data.category_id} не найдена"}
+            logger.info(f"Найдена категория по ID: {category.id}, name={category.name}")
         
-        # Если не нашли по ID, ищем по legacy_id
-        if not category and product_data.category_legacy_id:
-            category = await Category.get_or_none(legacy_id=product_data.category_legacy_id, is_active=True)
+        # Если указан category_legacy_id и он не пустой
+        elif product_data.category_legacy_id and str(product_data.category_legacy_id).strip():
+            category = await Category.get_or_none(legacy_id=str(product_data.category_legacy_id).strip(), is_active=True)
+            
+            if category:
+                # Категория найдена - обновляем название, если указано
+                if product_data.category_name:
+                    category.name = product_data.category_name
+                    await category.save()
+                    logger.info(f"Обновлена категория с legacy_id '{product_data.category_legacy_id}': новое название '{product_data.category_name}'")
+                logger.info(f"Найдена категория по legacy_id: {category.id}, name={category.name}")
+            else:
+                # Категория не найдена - создаем новую
+                if not product_data.category_name:
+                    logger.error("Для создания категории необходимо указать category_name")
+                    return {"status": "error", "message": "Для создания категории необходимо указать category_name"}
+                category = await Category.create(
+                    name=product_data.category_name,
+                    legacy_id=str(product_data.category_legacy_id).strip(),
+                    description="Автоматически создана"
+                )
+                logger.info(f"Создана новая категория с legacy_id '{product_data.category_legacy_id}': '{product_data.category_name}'")
         
-        # Если категория не найдена, но указано название - создаем категорию
-        if not category and product_data.category_name:
-            category = await Category.create(name=product_data.category_name, description="Автоматически создана")
-            logger.info(f"Создана новая категория: {product_data.category_name}")
-        
-        # Если категория не найдена и не создана - ошибка
+        # Если категория не определена - ошибка
         if not category:
-            return {"status": "error", "message": "Категория не найдена. Укажите category_name для создания новой категории."}
+            logger.error("Категория не определена")
+            return {"status": "error", "message": "Необходимо указать category_id или category_legacy_id"}
         
-        # Проверяем уникальность legacy_id, если он указан
-        if product_data.legacy_id:
-            existing_product = await Product.get_or_none(legacy_id=product_data.legacy_id)
+        # Обработка продукта: если указан legacy_id и он не пустой - upsert
+        if product_data.legacy_id and str(product_data.legacy_id).strip():
+            legacy_id_clean = str(product_data.legacy_id).strip()
+            logger.info(f"Поиск продукта по legacy_id: '{legacy_id_clean}'")
+            existing_product = await Product.get_or_none(legacy_id=legacy_id_clean)
+            
             if existing_product:
-                return {
-                    "status": "error", 
-                    "message": f"Продукт с legacy_id '{product_data.legacy_id}' уже существует",
-                    "existing_product_id": existing_product.id,
-                    "existing_product_name": existing_product.name
-                }
-        
-        product = await Product.create(
-            name=product_data.name,
-            description=product_data.description,
-            category=category,
-            price=product_data.price,
-            barcode=product_data.barcode,
-            article=product_data.article,
-            unit=product_data.unit,
-            legacy_id=product_data.legacy_id,
-            max_discount=product_data.max_discount,
-            tax_rate=product_data.tax_rate,
-            is_alcohol=product_data.is_alcohol,
-            is_marked=product_data.is_marked,
-            is_draught=product_data.is_draught,
-            is_bottled=product_data.is_bottled,
-            alc_code=product_data.alc_code,
-            egais_mark_code=product_data.egais_mark_code,
-            gtin=product_data.gtin
-        )
+                # Продукт найден - обновляем все поля
+                logger.info(f"Найден существующий продукт с legacy_id '{legacy_id_clean}': id={existing_product.id}")
+                existing_product.name = product_data.name
+                existing_product.description = product_data.description
+                existing_product.category = category
+                existing_product.price = product_data.price
+                existing_product.barcode = product_data.barcode
+                existing_product.legacy_path = product_data.legacy_path
+                existing_product.unit = product_data.unit
+                existing_product.max_discount = product_data.max_discount
+                existing_product.tax_rate = product_data.tax_rate
+                existing_product.is_alcohol = product_data.is_alcohol
+                existing_product.is_marked = product_data.is_marked
+                existing_product.is_draught = product_data.is_draught
+                existing_product.is_bottled = product_data.is_bottled
+                existing_product.alc_code = product_data.alc_code
+                existing_product.egais_mark_code = product_data.egais_mark_code
+                existing_product.gtin = product_data.gtin
+                await existing_product.save()
+                
+                logger.info(f"Обновлен продукт с legacy_id '{legacy_id_clean}': '{product_data.name}'")
+                product = existing_product
+            else:
+                # Продукт не найден - создаем новый
+                logger.info(f"Продукт с legacy_id '{legacy_id_clean}' не найден, создаем новый")
+                product = await Product.create(
+                    name=product_data.name,
+                    description=product_data.description,
+                    category=category,
+                    price=product_data.price,
+                    barcode=product_data.barcode,
+                    legacy_path=product_data.legacy_path,
+                    unit=product_data.unit,
+                    legacy_id=legacy_id_clean,
+                    max_discount=product_data.max_discount,
+                    tax_rate=product_data.tax_rate,
+                    is_alcohol=product_data.is_alcohol,
+                    is_marked=product_data.is_marked,
+                    is_draught=product_data.is_draught,
+                    is_bottled=product_data.is_bottled,
+                    alc_code=product_data.alc_code,
+                    egais_mark_code=product_data.egais_mark_code,
+                    gtin=product_data.gtin
+                )
+                logger.info(f"Создан новый продукт с legacy_id '{legacy_id_clean}': '{product_data.name}', id={product.id}")
+        else:
+            # legacy_id не указан - создаем новый продукт
+            logger.info(f"legacy_id не указан, создаем новый продукт")
+            product = await Product.create(
+                name=product_data.name,
+                description=product_data.description,
+                category=category,
+                price=product_data.price,
+                barcode=product_data.barcode,
+                legacy_path=product_data.legacy_path,
+                unit=product_data.unit,
+                legacy_id=product_data.legacy_id,
+                max_discount=product_data.max_discount,
+                tax_rate=product_data.tax_rate,
+                is_alcohol=product_data.is_alcohol,
+                is_marked=product_data.is_marked,
+                is_draught=product_data.is_draught,
+                is_bottled=product_data.is_bottled,
+                alc_code=product_data.alc_code,
+                egais_mark_code=product_data.egais_mark_code,
+                gtin=product_data.gtin
+            )
+            logger.info(f"Создан новый продукт: '{product_data.name}', id={product.id}")
         
         return {
             "status": "success",
@@ -2263,10 +2351,14 @@ async def create_product(product_data: ProductCreateRequest):
                 "id": product.id,
                 "name": product.name,
                 "category_id": product.category_id,
-                "price": float(product.price)
+                "price": float(product.price),
+                "legacy_id": product.legacy_id
             }
         }
     except Exception as e:
+        logger.error(f"Ошибка создания/обновления продукта: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         return {"status": "error", "error": str(e)}
 
 @app.put("/api/v1/products/{product_id}")
@@ -2318,7 +2410,7 @@ async def update_product(product_id: int, product_data: ProductCreateRequest):
         product.category = category
         product.price = product_data.price
         product.barcode = product_data.barcode
-        product.article = product_data.article
+        product.legacy_path = product_data.legacy_path
         product.unit = product_data.unit
         product.legacy_id = product_data.legacy_id
         product.max_discount = product_data.max_discount

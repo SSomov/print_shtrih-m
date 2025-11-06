@@ -5,7 +5,7 @@ class Product {
   final Category category;
   final double price;
   final String? barcode;
-  final String? article;
+  final String? legacyPath;
   final String unit;
   final double maxDiscount;
   final double taxRate;
@@ -25,7 +25,7 @@ class Product {
     required this.category,
     required this.price,
     this.barcode,
-    this.article,
+    this.legacyPath,
     required this.unit,
     required this.maxDiscount,
     required this.taxRate,
@@ -47,7 +47,7 @@ class Product {
       category: Category.fromJson(json['category']),
       price: (json['price'] as num).toDouble(),
       barcode: json['barcode'],
-      article: json['article'],
+      legacyPath: json['legacy_path'],
       unit: json['unit'],
       maxDiscount: (json['max_discount'] as num).toDouble(),
       taxRate: (json['tax_rate'] as num).toDouble(),
@@ -70,7 +70,7 @@ class Product {
       'category': category.toJson(),
       'price': price,
       'barcode': barcode,
-      'article': article,
+      'legacy_path': legacyPath,
       'unit': unit,
       'max_discount': maxDiscount,
       'tax_rate': taxRate,
