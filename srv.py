@@ -1714,6 +1714,16 @@ async def get_categories():
         return {"status": "error", "message": "База данных не подключена"}
     
     try:
+        # Сначала проверяем, есть ли категории
+        total = await Category.filter(is_active=True).count()
+        
+        # Если нет результатов, возвращаем пустой список
+        if total == 0:
+            return {
+                "status": "success",
+                "data": []
+            }
+        
         categories = await Category.filter(is_active=True).order_by('name')
         return {
             "status": "success",
@@ -2021,7 +2031,7 @@ async def update_seat_status(seat_id: int, is_occupied: bool = Form(...)):
 
 # Товары
 @app.get("/api/v1/products")
-async def get_products(category_id: int = None, search: str = None, page: int = 1, limit: int = 100):
+async def get_products(category_id: int = None, category_legacy_id: str = None, search: str = None, page: int = 1, limit: int = 100):
     """Получить список товаров с пагинацией, фильтром по категории и поиском"""
     global db_connected
     if not db_connected:
@@ -2029,20 +2039,55 @@ async def get_products(category_id: int = None, search: str = None, page: int = 
     
     try:
         offset = (page - 1) * limit
-        query = Product.filter(is_active=True).select_related('category')
+        
+        # Сначала проверяем, есть ли вообще продукты
+        base_query = Product.filter(is_active=True)
         
         if category_id:
-            query = query.filter(category_id=category_id)
+            base_query = base_query.filter(category_id=category_id)
+        elif category_legacy_id:
+            # Фильтрация по legacy_id категории через подзапрос
+            category = await Category.get_or_none(legacy_id=category_legacy_id, is_active=True)
+            if category:
+                base_query = base_query.filter(category_id=category.id)
+            else:
+                # Если категория не найдена, возвращаем пустой результат
+                return {
+                    "status": "success",
+                    "data": [],
+                    "pagination": {
+                        "page": page,
+                        "limit": limit,
+                        "total": 0,
+                        "pages": 0
+                    }
+                }
         
         # Поиск по названию или артикулу
         if search:
-            query = query.filter(
+            base_query = base_query.filter(
                 Q(name__icontains=search) | 
                 Q(article__icontains=search) |
                 Q(barcode__icontains=search)
             )
         
-        total = await query.count()
+        total = await base_query.count()
+        
+        # Если нет результатов, возвращаем пустой список
+        if total == 0:
+            return {
+                "status": "success",
+                "data": [],
+                "pagination": {
+                    "page": page,
+                    "limit": limit,
+                    "total": 0,
+                    "pages": 0
+                }
+            }
+        
+        # Только если есть результаты, используем select_related для оптимизации
+        query = base_query.select_related('category')
         products = await query.offset(offset).limit(limit).order_by('name')
         
         return {
@@ -2053,8 +2098,8 @@ async def get_products(category_id: int = None, search: str = None, page: int = 
                     "name": prod.name,
                     "description": prod.description,
                     "category": {
-                        "id": prod.category.id,
-                        "name": prod.category.name
+                        "id": prod.category.id if prod.category else None,
+                        "name": prod.category.name if prod.category else None
                     },
                     "price": float(prod.price),
                     "barcode": prod.barcode,
@@ -2069,7 +2114,6 @@ async def get_products(category_id: int = None, search: str = None, page: int = 
                     "is_bottled": prod.is_bottled,
                     "alc_code": prod.alc_code,
                     "egais_mark_code": prod.egais_mark_code,
-                    "egais_id": prod.egais_id,
                     "gtin": prod.gtin,
                     "is_active": prod.is_active,
                     "created_at": prod.created_at.isoformat() if prod.created_at else None,
@@ -2081,7 +2125,7 @@ async def get_products(category_id: int = None, search: str = None, page: int = 
                 "page": page,
                 "limit": limit,
                 "total": total,
-                "pages": (total + limit - 1) // limit
+                "pages": (total + limit - 1) // limit if total > 0 else 0
             }
         }
     except Exception as e:
@@ -2122,7 +2166,6 @@ async def get_product(product_id: int):
                 "is_bottled": product.is_bottled,
                 "alc_code": product.alc_code,
                 "egais_mark_code": product.egais_mark_code,
-                "egais_id": product.egais_id,
                 "gtin": product.gtin,
                 "is_active": product.is_active
             }
@@ -2149,7 +2192,6 @@ class ProductCreateRequest(BaseModel):
     is_bottled: bool = False
     alc_code: Optional[str] = None
     egais_mark_code: Optional[str] = None
-    egais_id: Optional[str] = None
     gtin: Optional[str] = None
 
 @app.post("/api/v1/products")
@@ -2212,7 +2254,6 @@ async def create_product(product_data: ProductCreateRequest):
             is_bottled=product_data.is_bottled,
             alc_code=product_data.alc_code,
             egais_mark_code=product_data.egais_mark_code,
-            egais_id=product_data.egais_id,
             gtin=product_data.gtin
         )
         
@@ -2288,7 +2329,6 @@ async def update_product(product_id: int, product_data: ProductCreateRequest):
         product.is_bottled = product_data.is_bottled
         product.alc_code = product_data.alc_code
         product.egais_mark_code = product_data.egais_mark_code
-        product.egais_id = product_data.egais_id
         product.gtin = product_data.gtin
         
         await product.save()

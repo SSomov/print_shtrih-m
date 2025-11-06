@@ -28,7 +28,6 @@ class Product(Model):
     # ЕГАИС поля
     alc_code = fields.CharField(max_length=100, null=True)  # Алкокод продукции
     egais_mark_code = fields.CharField(max_length=255, null=True)  # Код марки для ЕГАИС
-    egais_id = fields.CharField(max_length=100, null=True)  # Идентификатор ЕГАИС
     gtin = fields.CharField(max_length=50, null=True)  # GTIN для маркированных товаров
     
     # Статус

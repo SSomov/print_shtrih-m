@@ -195,9 +195,6 @@
               <el-form-item label="Алкокод">
                 <el-input v-model="productForm.alc_code" placeholder="Код алкогольной продукции" />
               </el-form-item>
-              <el-form-item label="ЕГАИС ID">
-                <el-input v-model="productForm.egais_id" placeholder="Идентификатор ЕГАИС" />
-              </el-form-item>
               <el-form-item label="GTIN" v-if="productForm.is_marked">
                 <el-input v-model="productForm.gtin" placeholder="GTIN для маркированных товаров" />
               </el-form-item>
@@ -265,7 +262,6 @@ export default {
         is_bottled: false,
         alc_code: '',
         egais_mark_code: '',
-        egais_id: '',
         gtin: ''
       }
     }
@@ -468,7 +464,6 @@ export default {
         is_bottled: false,
         alc_code: '',
         egais_mark_code: '',
-        egais_id: '',
         gtin: ''
       }
     },
