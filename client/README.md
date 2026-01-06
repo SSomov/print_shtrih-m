@@ -1,18 +1,26 @@
 # Print Shtrih Client
 
-Vue.js клиент для API печати чеков и работы с ЕГАИС.
+Svelte клиент для API печати чеков и работы с ЕГАИС.
 
 ## Установка
 
+Убедитесь, что у вас установлен [Bun](https://bun.sh/):
+
+```bash
+curl -fsSL https://bun.sh/install | bash
+```
+
+Затем установите зависимости:
+
 ```bash
 cd client
-npm install
+bun install
 ```
 
 ## Запуск в режиме разработки
 
 ```bash
-npm run dev
+bun run dev
 ```
 
 Приложение будет доступно по адресу http://localhost:3000
@@ -20,7 +28,7 @@ npm run dev
 ## Сборка для продакшена
 
 ```bash
-npm run build
+bun run build
 ```
 
 ## Функциональность
@@ -48,10 +56,11 @@ npm run build
 
 ## Технологии
 
-- Vue 3
-- Element Plus (UI компоненты)
+- Svelte 4
+- Tailwind CSS (стилизация)
 - Axios (HTTP клиент)
 - Vite (сборщик)
+- Bun (runtime и пакетный менеджер)
 
 ## API
 

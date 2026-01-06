@@ -30,22 +30,14 @@ api.interceptors.response.use(
 
 // API для чеков
 export const checkApi = {
-  // Пробитие чека наличными
   cashPayment: (order) => api.post('/payment/cash', order),
-  
-  // Пробитие чека картой
   cardPayment: (order) => api.post('/payment/card', order),
-  
-  // Создание счета
   createInvoice: (order) => api.post('/invoice', order)
 }
 
 // API для ЕГАИС
 export const egaisApi = {
-  // Отправка чека в ЕГАИС
   sendCheck: (order) => api.post('/send-egais-check', order),
-  
-  // Отправка XML файла в ЕГАИС
   sendXmlFile: (formData) => api.post('/send-egais-xml', formData, {
     headers: {
       'Content-Type': 'multipart/form-data'
@@ -55,59 +47,46 @@ export const egaisApi = {
 
 // API для логов
 export const logsApi = {
-  // Получение логов чеков
   getCheckLogs: (params) => api.get('/logs/checks', { params }),
-  
-  // Получение логов ЕГАИС
   getEgaisLogs: (params) => api.get('/logs/egais', { params }),
-  
-  // Получение статистики
   getStats: () => api.get('/logs/stats'),
-  
-  // Получение информации о ККТ
   getKktInfo: () => api.get('/kkt-info'),
-  
-  // Получение срока действия ФН
   getFnExpiration: () => api.get('/fn-expiration'),
-  
-  // Получение параметров текущей смены ФН
   getFnSessionParams: () => api.get('/fn-session-params')
 }
 
 // API для печати
 export const printApi = {
-  // Печать X-отчета
   printXReport: () => api.get('/print/xreport'),
-  
-  // Печать Z-отчета
   printZReport: (employee) => api.post('/print/zreport', employee),
-  
-  // Печать кухонной марки
   printKitchenMark: (data) => api.post('/print/kitchen-mark', data),
-  
-  // Печать счета
   printInvoice: (order) => api.post('/print/invoice', order)
 }
 
 // API для авторизации
 export const authApi = {
-  // Вход в систему
   login: (username, password) => api.post('/auth/login', { username, password })
 }
 
 // API для управления пользователями
 export const usersApi = {
-  // Получить список пользователей
   getUsers: () => api.get('/users'),
-  
-  // Создать нового пользователя
   createUser: (userData) => api.post('/users', userData),
-  
-  // Обновить пользователя
   updateUser: (userId, userData) => api.put(`/users/${userId}`, userData),
-  
-  // Удалить пользователя (деактивация)
   deleteUser: (userId) => api.delete(`/users/${userId}`)
 }
 
+// API для товаров и категорий
+export const productsApi = {
+  getProducts: (params) => api.get('/products', { params }),
+  createProduct: (data) => api.post('/products', data),
+  updateProduct: (id, data) => api.put(`/products/${id}`, data),
+  deleteProduct: (id) => api.delete(`/products/${id}`),
+  getCategories: () => api.get('/categories'),
+  createCategory: (data) => api.post('/categories', data),
+  updateCategory: (id, data) => api.put(`/categories/${id}`, data),
+  deleteCategory: (id) => api.delete(`/categories/${id}`)
+}
+
 export default api
+

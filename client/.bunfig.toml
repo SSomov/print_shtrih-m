@@ -1,0 +1,7 @@
+# Конфигурация Bun для проекта
+[install]
+# Использовать lockfile
+lockfile = true
+# Автоматически устанавливать peer dependencies
+auto = true
+
