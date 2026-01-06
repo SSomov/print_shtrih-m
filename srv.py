@@ -1,4 +1,5 @@
 from typing import Union, List, Optional
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, UploadFile, File, Form, Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -159,10 +160,47 @@ class KitchenMarkRequest(BaseModel):
     kitchen_type: str
     products: List[Item] = None
 
-app = FastAPI()
-
 # Инициализация БД при запуске
 db_connected = False
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    global db_connected
+    db_connected = await init_db()
+    
+    if db_connected:
+        # Всегда создаем тестового пользователя если его нет
+        try:
+            count = await User.all().count()
+            if count == 0:
+                user = await User.create(
+                    username="admin",
+                    password_hash=get_password_hash("admin"),
+                    is_active=True
+                )
+                logger.info(f"Создан тестовый пользователь: {user.username}")
+        except Exception as e:
+            logger.error(f"Ошибка создания пользователя: {e}")
+        
+        # Проверяем, нужно ли создавать полный набор тестовых данных
+        init_test_data = os.getenv('INIT_TEST_DATA', 'false').lower() == 'true'
+        
+        if init_test_data:
+            logger.info("Инициализация тестовых данных включена")
+            from create_test_data import create_test_data
+            await create_test_data()
+        else:
+            logger.info("Инициализация тестовых данных отключена (INIT_TEST_DATA != true)")
+    
+    # Инициализируем кэш данных ККТ
+    initialize_kkt_cache()
+    
+    yield
+    
+    # Shutdown (если нужно добавить закрытие соединений)
+
+app = FastAPI(lifespan=lifespan)
 
 # Функции авторизации
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -201,38 +239,6 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
             detail="Пользователь не найден"
         )
     return user
-
-@app.on_event("startup")
-async def startup_event():
-    global db_connected
-    db_connected = await init_db()
-    
-    if db_connected:
-        # Всегда создаем тестового пользователя если его нет
-        try:
-            count = await User.all().count()
-            if count == 0:
-                user = await User.create(
-                    username="admin",
-                    password_hash=get_password_hash("admin"),
-                    is_active=True
-                )
-                logger.info(f"Создан тестовый пользователь: {user.username}")
-        except Exception as e:
-            logger.error(f"Ошибка создания пользователя: {e}")
-        
-        # Проверяем, нужно ли создавать полный набор тестовых данных
-        init_test_data = os.getenv('INIT_TEST_DATA', 'false').lower() == 'true'
-        
-        if init_test_data:
-            logger.info("Инициализация тестовых данных включена")
-            from create_test_data import create_test_data
-            await create_test_data()
-        else:
-            logger.info("Инициализация тестовых данных отключена (INIT_TEST_DATA != true)")
-    
-    # Инициализируем кэш данных ККТ
-    initialize_kkt_cache()
 
 def add_spaces_to_45_chars(input_string): 
     total_spaces = 45 - len(input_string)
