@@ -5,17 +5,17 @@ import { logsApi } from "../lib/api.js";
 let activeTab = "checks";
 let checkLogs = [];
 let checkLoading = false;
-const checkPage = 1;
-const checkPageSize = 20;
+let checkPage = 1;
+let checkPageSize = 20;
 let checkTotal = 0;
-const checkStatus = "";
+let checkStatus = "";
 
 let egaisLogs = [];
 let egaisLoading = false;
-const egaisPage = 1;
-const egaisPageSize = 20;
+let egaisPage = 1;
+let egaisPageSize = 20;
 let egaisTotal = 0;
-const egaisStatus = "";
+let egaisStatus = "";
 
 let detailsVisible = false;
 let detailsTitle = "";

@@ -2,7 +2,7 @@
 import { checkApi } from "../lib/api.js";
 
 let loading = false;
-const paymentType = "cash";
+let paymentType = "cash";
 let form = {
 	num: "",
 	typedoc: "check",
