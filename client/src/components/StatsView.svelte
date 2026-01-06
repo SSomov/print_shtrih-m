@@ -1,39 +1,39 @@
 <script>
-    import { logsApi } from "../lib/api.js";
-    import { onMount } from "svelte";
+import { onMount } from "svelte";
+import { logsApi } from "../lib/api.js";
 
-    let loading = false;
-    let stats = null;
+let loading = false;
+let stats = null;
 
-    onMount(() => {
-        loadStats();
-    });
+onMount(() => {
+	loadStats();
+});
 
-    async function loadStats() {
-        loading = true;
-        try {
-            const result = await logsApi.getStats();
-            if (result.data.status === "success") {
-                stats = result.data;
-            }
-        } catch (error) {
-            alert("Ошибка: " + error.message);
-        } finally {
-            loading = false;
-        }
-    }
+async function loadStats() {
+	loading = true;
+	try {
+		const result = await logsApi.getStats();
+		if (result.data.status === "success") {
+			stats = result.data;
+		}
+	} catch (error) {
+		alert("Ошибка: " + error.message);
+	} finally {
+		loading = false;
+	}
+}
 
-    function getSuccessRate(data) {
-        if (data.total === 0) return 0;
-        return Math.round((data.success / data.total) * 100);
-    }
+function getSuccessRate(data) {
+	if (data.total === 0) return 0;
+	return Math.round((data.success / data.total) * 100);
+}
 
-    function getSuccessRateType(data) {
-        const rate = getSuccessRate(data);
-        if (rate >= 90) return "bg-success-100 text-success-700";
-        if (rate >= 70) return "bg-warning-100 text-warning-700";
-        return "bg-danger-100 text-danger-700";
-    }
+function getSuccessRateType(data) {
+	const rate = getSuccessRate(data);
+	if (rate >= 90) return "bg-success-100 text-success-700";
+	if (rate >= 70) return "bg-warning-100 text-warning-700";
+	return "bg-danger-100 text-danger-700";
+}
 </script>
 
 <div class="card">

@@ -1,47 +1,51 @@
 <script>
-  import { authApi } from '../lib/api.js'
-  import { isAuthenticated, username } from '../lib/stores.js'
+import { authApi } from "../lib/api.js";
+import { isAuthenticated, username } from "../lib/stores.js";
 
-  let loginForm = {
-    username: '',
-    password: ''
-  }
-  let loading = false
-  let errorMessage = ''
+const loginForm = {
+	username: "",
+	password: "",
+};
+let loading = false;
+let errorMessage = "";
 
-  async function handleLogin() {
-    if (!loginForm.username || !loginForm.password) {
-      errorMessage = 'Заполните все поля'
-      return
-    }
+async function handleLogin() {
+	if (!loginForm.username || !loginForm.password) {
+		errorMessage = "Заполните все поля";
+		return;
+	}
 
-    loading = true
-    errorMessage = ''
+	loading = true;
+	errorMessage = "";
 
-    try {
-      const response = await authApi.login(loginForm.username, loginForm.password)
-      
-      if (response.data.status === 'success') {
-        localStorage.setItem('token', response.data.token)
-        localStorage.setItem('username', response.data.username)
-        isAuthenticated.set(true)
-        username.set(response.data.username)
-        errorMessage = ''
-      } else {
-        errorMessage = response.data.message || 'Ошибка авторизации'
-      }
-    } catch (error) {
-      errorMessage = error.response?.data?.message || 'Ошибка подключения к серверу'
-    } finally {
-      loading = false
-    }
-  }
+	try {
+		const response = await authApi.login(
+			loginForm.username,
+			loginForm.password
+		);
 
-  function handleKeyPress(event) {
-    if (event.key === 'Enter') {
-      handleLogin()
-    }
-  }
+		if (response.data.status === "success") {
+			localStorage.setItem("token", response.data.token);
+			localStorage.setItem("username", response.data.username);
+			isAuthenticated.set(true);
+			username.set(response.data.username);
+			errorMessage = "";
+		} else {
+			errorMessage = response.data.message || "Ошибка авторизации";
+		}
+	} catch (error) {
+		errorMessage =
+			error.response?.data?.message || "Ошибка подключения к серверу";
+	} finally {
+		loading = false;
+	}
+}
+
+function handleKeyPress(event) {
+	if (event.key === "Enter") {
+		handleLogin();
+	}
+}
 </script>
 
 <div class="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary-500 to-purple-600">
@@ -76,7 +80,7 @@
         class="btn btn-primary w-full"
         disabled={loading}
       >
-        {loading ? 'Вход...' : 'Войти'}
+        {loading ? "Вход..." : "Войти"}
       </button>
     </form>
     

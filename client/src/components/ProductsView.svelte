@@ -1,259 +1,266 @@
 <script>
-  import { onMount } from 'svelte'
-  import { productsApi } from '../lib/api.js'
-  import api from '../lib/api.js'
+import { onMount } from "svelte";
+import api from "../lib/api.js";
 
-  let loading = false
-  let categories = []
-  let products = []
-  let selectedCategory = null
-  let pagination = {
-    page: 1,
-    limit: 20,
-    total: 0
-  }
-  
-  let showCategoryForm = false
-  let showProductForm = false
-  let editingCategory = null
-  let editingProduct = null
-  
-  let categoryForm = {
-    name: '',
-    description: '',
-    parent_id: null
-  }
-  
-  let productForm = {
-    name: '',
-    description: '',
-    category_id: null,
-    price: 0,
-    barcode: '',
-    legacy_path: '',
-    unit: 'шт',
-    max_discount: 100,
-    tax_rate: 20,
-    is_alcohol: false,
-    is_marked: false,
-    is_draught: false,
-    is_bottled: false,
-    alc_code: '',
-    egais_mark_code: '',
-    gtin: ''
-  }
+let loading = false;
+let categories = [];
+let products = [];
+let selectedCategory = null;
+let pagination = {
+	page: 1,
+	limit: 20,
+	total: 0,
+};
 
-  $: categoriesTree = buildTree(categories)
-  $: flatCategories = flattenCategories(categoriesTree)
+let showCategoryForm = false;
+let showProductForm = false;
+let editingCategory = null;
+let editingProduct = null;
 
-  function buildTree(cats, parentId = null) {
-    return cats
-      .filter(cat => (cat.parent_id === null && parentId === null) || (cat.parent_id === parentId))
-      .map(cat => ({
-        id: cat.id,
-        name: cat.name,
-        description: cat.description,
-        parent_id: cat.parent_id,
-        children: buildTree(cats, cat.id)
-      }))
-  }
+let categoryForm = {
+	name: "",
+	description: "",
+	parent_id: null,
+};
 
-  function flattenCategories(tree, level = 0) {
-    let result = []
-    for (const cat of tree) {
-      result.push({
-        ...cat,
-        level: level,
-        displayName: '  '.repeat(level) + cat.name
-      })
-      if (cat.children && cat.children.length > 0) {
-        result = result.concat(flattenCategories(cat.children, level + 1))
-      }
-    }
-    return result
-  }
+let productForm = {
+	name: "",
+	description: "",
+	category_id: null,
+	price: 0,
+	barcode: "",
+	legacy_path: "",
+	unit: "шт",
+	max_discount: 100,
+	tax_rate: 20,
+	is_alcohol: false,
+	is_marked: false,
+	is_draught: false,
+	is_bottled: false,
+	alc_code: "",
+	egais_mark_code: "",
+	gtin: "",
+};
 
-  onMount(async () => {
-    await loadCategories()
-    await loadProducts()
-  })
+$: categoriesTree = buildTree(categories);
+$: flatCategories = flattenCategories(categoriesTree);
 
-  async function refresh() {
-    await Promise.all([loadCategories(), loadProducts()])
-  }
+function buildTree(cats, parentId = null) {
+	return cats
+		.filter(
+			(cat) =>
+				(cat.parent_id === null && parentId === null) ||
+				cat.parent_id === parentId
+		)
+		.map((cat) => ({
+			id: cat.id,
+			name: cat.name,
+			description: cat.description,
+			parent_id: cat.parent_id,
+			children: buildTree(cats, cat.id),
+		}));
+}
 
-  async function loadCategories() {
-    try {
-      const response = await api.get('/categories')
-      if (response.data.status === 'success') {
-        categories = response.data.data
-      }
-    } catch (error) {
-      console.error('Ошибка загрузки категорий:', error)
-    }
-  }
+function flattenCategories(tree, level = 0) {
+	let result = [];
+	for (const cat of tree) {
+		result.push({
+			...cat,
+			level: level,
+			displayName: "  ".repeat(level) + cat.name,
+		});
+		if (cat.children && cat.children.length > 0) {
+			result = result.concat(flattenCategories(cat.children, level + 1));
+		}
+	}
+	return result;
+}
 
-  async function loadProducts() {
-    loading = true
-    try {
-      const params = {
-        page: pagination.page,
-        limit: pagination.limit
-      }
-      
-      if (selectedCategory) {
-        params.category_id = selectedCategory.id
-      }
-      
-      const response = await api.get('/products', { params })
-      if (response.data.status === 'success') {
-        products = response.data.data
-        pagination = response.data.pagination
-      }
-    } catch (error) {
-      console.error('Ошибка загрузки товаров:', error)
-    } finally {
-      loading = false
-    }
-  }
+onMount(async () => {
+	await loadCategories();
+	await loadProducts();
+});
 
-  function selectCategory(category) {
-    selectedCategory = category
-    pagination.page = 1
-    loadProducts()
-  }
+async function refresh() {
+	await Promise.all([loadCategories(), loadProducts()]);
+}
 
-  function addCategory() {
-    editingCategory = null
-    categoryForm = { name: '', description: '', parent_id: null }
-    showCategoryForm = true
-  }
+async function loadCategories() {
+	try {
+		const response = await api.get("/categories");
+		if (response.data.status === "success") {
+			categories = response.data.data;
+		}
+	} catch (error) {
+		console.error("Ошибка загрузки категорий:", error);
+	}
+}
 
-  function editCategory(category) {
-    editingCategory = category
-    categoryForm = {
-      name: category.name,
-      description: category.description || '',
-      parent_id: category.parent_id || 0
-    }
-    showCategoryForm = true
-  }
+async function loadProducts() {
+	loading = true;
+	try {
+		const params = {
+			page: pagination.page,
+			limit: pagination.limit,
+		};
 
-  async function saveCategory() {
-    try {
-      const formData = new FormData()
-      formData.append('name', categoryForm.name)
-      if (categoryForm.description) {
-        formData.append('description', categoryForm.description)
-      }
-      
-      if (categoryForm.parent_id !== null && categoryForm.parent_id !== undefined && categoryForm.parent_id !== 0) {
-        formData.append('parent_id', categoryForm.parent_id.toString())
-      }
-      
-      if (editingCategory) {
-        await api.put(`/categories/${editingCategory.id}`, formData)
-      } else {
-        await api.post('/categories', formData)
-      }
-      
-      showCategoryForm = false
-      editingCategory = null
-      categoryForm = { name: '', description: '', parent_id: null }
-      await loadCategories()
-    } catch (error) {
-      alert('Ошибка сохранения категории: ' + error.message)
-    }
-  }
+		if (selectedCategory) {
+			params.category_id = selectedCategory.id;
+		}
 
-  async function deleteCategory(category) {
-    if (!confirm(`Удалить категорию "${category.name}"?`)) return
-    
-    try {
-      await api.delete(`/categories/${category.id}`)
-      await loadCategories()
-      
-      if (selectedCategory && selectedCategory.id === category.id) {
-        selectedCategory = null
-        await loadProducts()
-      }
-    } catch (error) {
-      alert('Ошибка удаления категории: ' + error.message)
-    }
-  }
+		const response = await api.get("/products", { params });
+		if (response.data.status === "success") {
+			products = response.data.data;
+			pagination = response.data.pagination;
+		}
+	} catch (error) {
+		console.error("Ошибка загрузки товаров:", error);
+	} finally {
+		loading = false;
+	}
+}
 
-  function addProduct() {
-    editingProduct = null
-    resetProductForm()
-    showProductForm = true
-  }
+function selectCategory(category) {
+	selectedCategory = category;
+	pagination.page = 1;
+	loadProducts();
+}
 
-  function editProduct(product) {
-    editingProduct = product
-    productForm = { ...product }
-    productForm.category_id = product.category.id
-    showProductForm = true
-  }
+function addCategory() {
+	editingCategory = null;
+	categoryForm = { name: "", description: "", parent_id: null };
+	showCategoryForm = true;
+}
 
-  async function saveProduct() {
-    try {
-      if (editingProduct) {
-        await api.put(`/products/${editingProduct.id}`, productForm)
-      } else {
-        await api.post('/products', productForm)
-      }
-      
-      showProductForm = false
-      editingProduct = null
-      resetProductForm()
-      await loadProducts()
-    } catch (error) {
-      alert('Ошибка сохранения товара: ' + error.message)
-    }
-  }
+function editCategory(category) {
+	editingCategory = category;
+	categoryForm = {
+		name: category.name,
+		description: category.description || "",
+		parent_id: category.parent_id || 0,
+	};
+	showCategoryForm = true;
+}
 
-  async function deleteProduct(product) {
-    if (!confirm(`Удалить товар "${product.name}"?`)) return
-    
-    try {
-      await api.delete(`/products/${product.id}`)
-      await loadProducts()
-    } catch (error) {
-      alert('Ошибка удаления товара: ' + error.message)
-    }
-  }
+async function saveCategory() {
+	try {
+		const formData = new FormData();
+		formData.append("name", categoryForm.name);
+		if (categoryForm.description) {
+			formData.append("description", categoryForm.description);
+		}
 
-  function resetProductForm() {
-    productForm = {
-      name: '',
-      description: '',
-      category_id: selectedCategory ? selectedCategory.id : null,
-      price: 0,
-      barcode: '',
-      legacy_path: '',
-      unit: 'шт',
-      max_discount: 100,
-      tax_rate: 20,
-      is_alcohol: false,
-      is_marked: false,
-      is_draught: false,
-      is_bottled: false,
-      alc_code: '',
-      egais_mark_code: '',
-      gtin: ''
-    }
-  }
+		if (
+			categoryForm.parent_id !== null &&
+			categoryForm.parent_id !== undefined &&
+			categoryForm.parent_id !== 0
+		) {
+			formData.append("parent_id", categoryForm.parent_id.toString());
+		}
 
-  function handleSizeChange(val) {
-    pagination.limit = val
-    pagination.page = 1
-    loadProducts()
-  }
+		if (editingCategory) {
+			await api.put(`/categories/${editingCategory.id}`, formData);
+		} else {
+			await api.post("/categories", formData);
+		}
 
-  function handleCurrentChange(val) {
-    pagination.page = val
-    loadProducts()
-  }
+		showCategoryForm = false;
+		editingCategory = null;
+		categoryForm = { name: "", description: "", parent_id: null };
+		await loadCategories();
+	} catch (error) {
+		alert("Ошибка сохранения категории: " + error.message);
+	}
+}
+
+async function deleteCategory(category) {
+	if (!confirm(`Удалить категорию "${category.name}"?`)) return;
+
+	try {
+		await api.delete(`/categories/${category.id}`);
+		await loadCategories();
+
+		if (selectedCategory && selectedCategory.id === category.id) {
+			selectedCategory = null;
+			await loadProducts();
+		}
+	} catch (error) {
+		alert("Ошибка удаления категории: " + error.message);
+	}
+}
+
+function addProduct() {
+	editingProduct = null;
+	resetProductForm();
+	showProductForm = true;
+}
+
+function editProduct(product) {
+	editingProduct = product;
+	productForm = { ...product };
+	productForm.category_id = product.category.id;
+	showProductForm = true;
+}
+
+async function saveProduct() {
+	try {
+		if (editingProduct) {
+			await api.put(`/products/${editingProduct.id}`, productForm);
+		} else {
+			await api.post("/products", productForm);
+		}
+
+		showProductForm = false;
+		editingProduct = null;
+		resetProductForm();
+		await loadProducts();
+	} catch (error) {
+		alert("Ошибка сохранения товара: " + error.message);
+	}
+}
+
+async function deleteProduct(product) {
+	if (!confirm(`Удалить товар "${product.name}"?`)) return;
+
+	try {
+		await api.delete(`/products/${product.id}`);
+		await loadProducts();
+	} catch (error) {
+		alert("Ошибка удаления товара: " + error.message);
+	}
+}
+
+function resetProductForm() {
+	productForm = {
+		name: "",
+		description: "",
+		category_id: selectedCategory ? selectedCategory.id : null,
+		price: 0,
+		barcode: "",
+		legacy_path: "",
+		unit: "шт",
+		max_discount: 100,
+		tax_rate: 20,
+		is_alcohol: false,
+		is_marked: false,
+		is_draught: false,
+		is_bottled: false,
+		alc_code: "",
+		egais_mark_code: "",
+		gtin: "",
+	};
+}
+
+function handleSizeChange(val) {
+	pagination.limit = val;
+	pagination.page = 1;
+	loadProducts();
+}
+
+function handleCurrentChange(val) {
+	pagination.page = val;
+	loadProducts();
+}
 </script>
 
 <div class="grid grid-cols-6 gap-4">

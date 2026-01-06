@@ -1,97 +1,104 @@
 <script>
-  import { checkApi } from '../lib/api.js'
+import { checkApi } from "../lib/api.js";
 
-  let loading = false
-  let paymentType = 'cash'
-  let form = {
-    num: '',
-    typedoc: 'check',
-    hall: '',
-    table: '',
-    create: new Date().toLocaleString('ru-RU'),
-    waiter: '',
-    employee_fio: '',
-    employee_inn: '',
-    employee_pos: '',
-    alldiscount: '0',
-    products: [{
-      name: '',
-      kolvo: '1',
-      price: '0',
-      mark: '0',
-      GTIN: '',
-      qr: '',
-      alc_code: '',
-      egais_mark_code: ''
-    }]
-  }
+let loading = false;
+const paymentType = "cash";
+let form = {
+	num: "",
+	typedoc: "check",
+	hall: "",
+	table: "",
+	create: new Date().toLocaleString("ru-RU"),
+	waiter: "",
+	employee_fio: "",
+	employee_inn: "",
+	employee_pos: "",
+	alldiscount: "0",
+	products: [
+		{
+			name: "",
+			kolvo: "1",
+			price: "0",
+			mark: "0",
+			GTIN: "",
+			qr: "",
+			alc_code: "",
+			egais_mark_code: "",
+		},
+	],
+};
 
-  function addProduct() {
-    form.products = [...form.products, {
-      name: '',
-      kolvo: 1,
-      price: 0,
-      mark: '0',
-      GTIN: '',
-      qr: '',
-      alc_code: '',
-      egais_mark_code: ''
-    }]
-  }
+function addProduct() {
+	form.products = [
+		...form.products,
+		{
+			name: "",
+			kolvo: 1,
+			price: 0,
+			mark: "0",
+			GTIN: "",
+			qr: "",
+			alc_code: "",
+			egais_mark_code: "",
+		},
+	];
+}
 
-  function removeProduct(index) {
-    if (form.products.length > 1) {
-      form.products = form.products.filter((_, i) => i !== index)
-    }
-  }
+function removeProduct(index) {
+	if (form.products.length > 1) {
+		form.products = form.products.filter((_, i) => i !== index);
+	}
+}
 
-  async function submitCheck() {
-    loading = true
-    try {
-      let result
-      if (paymentType === 'cash') {
-        result = await checkApi.cashPayment(form)
-      } else {
-        result = await checkApi.cardPayment(form)
-      }
-      
-      if (result.data.status === 'success') {
-        alert('Чек успешно пробит!')
-        resetForm()
-      } else {
-        alert('Ошибка: ' + result.data.message)
-      }
-    } catch (error) {
-      alert('Ошибка: ' + error.message)
-    } finally {
-      loading = false
-    }
-  }
+async function submitCheck() {
+	loading = true;
+	try {
+		let result;
+		if (paymentType === "cash") {
+			result = await checkApi.cashPayment(form);
+		} else {
+			result = await checkApi.cardPayment(form);
+		}
 
-  function resetForm() {
-    form = {
-      num: '',
-      typedoc: 'check',
-      hall: '',
-      table: '',
-      create: new Date().toLocaleString('ru-RU'),
-      waiter: '',
-      employee_fio: '',
-      employee_inn: '',
-      employee_pos: '',
-      alldiscount: '0',
-      products: [{
-        name: '',
-        kolvo: '1',
-        price: '0',
-        mark: '0',
-        GTIN: '',
-        qr: '',
-        alc_code: '',
-        egais_mark_code: ''
-      }]
-    }
-  }
+		if (result.data.status === "success") {
+			alert("Чек успешно пробит!");
+			resetForm();
+		} else {
+			alert("Ошибка: " + result.data.message);
+		}
+	} catch (error) {
+		alert("Ошибка: " + error.message);
+	} finally {
+		loading = false;
+	}
+}
+
+function resetForm() {
+	form = {
+		num: "",
+		typedoc: "check",
+		hall: "",
+		table: "",
+		create: new Date().toLocaleString("ru-RU"),
+		waiter: "",
+		employee_fio: "",
+		employee_inn: "",
+		employee_pos: "",
+		alldiscount: "0",
+		products: [
+			{
+				name: "",
+				kolvo: "1",
+				price: "0",
+				mark: "0",
+				GTIN: "",
+				qr: "",
+				alc_code: "",
+				egais_mark_code: "",
+			},
+		],
+	};
+}
 </script>
 
 <div class="card">

@@ -1,95 +1,95 @@
 <script>
-    import { logsApi } from "../lib/api.js";
-    import { onMount } from "svelte";
+import { onMount } from "svelte";
+import { logsApi } from "../lib/api.js";
 
-    let loading = false;
-    let error = null;
-    let kktInfo = null;
-    let sessionParams = null;
+let loading = false;
+let error = null;
+let kktInfo = null;
+let sessionParams = null;
 
-    onMount(() => {
-        loadKktInfo();
-    });
+onMount(() => {
+	loadKktInfo();
+});
 
-    async function loadKktInfo() {
-        loading = true;
-        error = null;
-        try {
-            const result = await logsApi.getKktInfo();
-            if (result.data.status === "success") {
-                kktInfo = result.data.kkt_info;
-            } else {
-                error = result.data.error || "Ошибка получения данных ККТ";
-            }
+async function loadKktInfo() {
+	loading = true;
+	error = null;
+	try {
+		const result = await logsApi.getKktInfo();
+		if (result.data.status === "success") {
+			kktInfo = result.data.kkt_info;
+		} else {
+			error = result.data.error || "Ошибка получения данных ККТ";
+		}
 
-            try {
-                const sessionResult = await logsApi.getFnSessionParams();
-                if (sessionResult.data.status === "success") {
-                    sessionParams = sessionResult.data.session_params;
-                }
-            } catch (sessionError) {
-                console.warn(
-                    "Не удалось загрузить параметры смены:",
-                    sessionError.message,
-                );
-            }
-        } catch (err) {
-            error = "Ошибка: " + err.message;
-        } finally {
-            loading = false;
-        }
-    }
+		try {
+			const sessionResult = await logsApi.getFnSessionParams();
+			if (sessionResult.data.status === "success") {
+				sessionParams = sessionResult.data.session_params;
+			}
+		} catch (sessionError) {
+			console.warn(
+				"Не удалось загрузить параметры смены:",
+				sessionError.message
+			);
+		}
+	} catch (err) {
+		error = "Ошибка: " + err.message;
+	} finally {
+		loading = false;
+	}
+}
 
-    function formatDate(dateString) {
-        if (!dateString) return "-";
-        return new Date(dateString).toLocaleString("ru-RU");
-    }
+function formatDate(dateString) {
+	if (!dateString) return "-";
+	return new Date(dateString).toLocaleString("ru-RU");
+}
 
-    function getExpirationClass(expirationDate) {
-        if (!expirationDate) return "";
+function getExpirationClass(expirationDate) {
+	if (!expirationDate) return "";
 
-        const expiration = new Date(expirationDate);
-        const now = new Date();
-        const daysUntilExpiration = Math.ceil(
-            (expiration - now) / (1000 * 60 * 60 * 24),
-        );
+	const expiration = new Date(expirationDate);
+	const now = new Date();
+	const daysUntilExpiration = Math.ceil(
+		(expiration - now) / (1000 * 60 * 60 * 24)
+	);
 
-        if (daysUntilExpiration < 0)
-            return "bg-danger-50 text-danger-700 border-danger-200";
-        if (daysUntilExpiration <= 30)
-            return "bg-warning-50 text-warning-700 border-warning-200";
-        if (daysUntilExpiration <= 90)
-            return "bg-primary-50 text-primary-700 border-primary-200";
-        return "bg-success-50 text-success-700 border-success-200";
-    }
+	if (daysUntilExpiration < 0)
+		return "bg-danger-50 text-danger-700 border-danger-200";
+	if (daysUntilExpiration <= 30)
+		return "bg-warning-50 text-warning-700 border-warning-200";
+	if (daysUntilExpiration <= 90)
+		return "bg-primary-50 text-primary-700 border-primary-200";
+	return "bg-success-50 text-success-700 border-success-200";
+}
 
-    function getSessionStateText(state) {
-        if (state === null || state === undefined) return "Неизвестно";
-        switch (state) {
-            case 0:
-                return "Смена закрыта";
-            case 1:
-                return "Смена открыта";
-            case 2:
-                return "Смена истекла";
-            default:
-                return `Состояние ${state}`;
-        }
-    }
+function getSessionStateText(state) {
+	if (state === null || state === undefined) return "Неизвестно";
+	switch (state) {
+		case 0:
+			return "Смена закрыта";
+		case 1:
+			return "Смена открыта";
+		case 2:
+			return "Смена истекла";
+		default:
+			return `Состояние ${state}`;
+	}
+}
 
-    function getSessionStateType(state) {
-        if (state === null || state === undefined) return "info";
-        switch (state) {
-            case 0:
-                return "bg-gray-100 text-gray-700";
-            case 1:
-                return "bg-success-100 text-success-700";
-            case 2:
-                return "bg-warning-100 text-warning-700";
-            default:
-                return "bg-gray-100 text-gray-700";
-        }
-    }
+function getSessionStateType(state) {
+	if (state === null || state === undefined) return "info";
+	switch (state) {
+		case 0:
+			return "bg-gray-100 text-gray-700";
+		case 1:
+			return "bg-success-100 text-success-700";
+		case 2:
+			return "bg-warning-100 text-warning-700";
+		default:
+			return "bg-gray-100 text-gray-700";
+	}
+}
 </script>
 
 <div class="card">

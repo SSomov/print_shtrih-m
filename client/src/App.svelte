@@ -1,45 +1,45 @@
 <script>
-  import { onMount } from 'svelte'
-  import { isAuthenticated, username, activeTab } from './lib/stores.js'
-  import LoginForm from './components/LoginForm.svelte'
-  import CheckForm from './components/CheckForm.svelte'
-  import EgaisForm from './components/EgaisForm.svelte'
-  import ProductsView from './components/ProductsView.svelte'
-  import KktInfo from './components/KktInfo.svelte'
-  import UsersView from './components/UsersView.svelte'
-  import LogsView from './components/LogsView.svelte'
-  import StatsView from './components/StatsView.svelte'
-  import Logo from './components/Logo.svelte'
+import { onMount } from "svelte";
+import CheckForm from "./components/CheckForm.svelte";
+import EgaisForm from "./components/EgaisForm.svelte";
+import KktInfo from "./components/KktInfo.svelte";
+import LoginForm from "./components/LoginForm.svelte";
+import Logo from "./components/Logo.svelte";
+import LogsView from "./components/LogsView.svelte";
+import ProductsView from "./components/ProductsView.svelte";
+import StatsView from "./components/StatsView.svelte";
+import UsersView from "./components/UsersView.svelte";
+import { activeTab, isAuthenticated, username } from "./lib/stores.js";
 
-  let currentUsername = ''
-  let currentAuth = false
-  let currentTab = 'checks'
+let currentUsername = "";
+let currentAuth = false;
+let currentTab = "checks";
 
-  $: currentUsername = $username
-  $: currentAuth = $isAuthenticated
-  $: currentTab = $activeTab
+$: currentUsername = $username;
+$: currentAuth = $isAuthenticated;
+$: currentTab = $activeTab;
 
-  onMount(() => {
-    const token = localStorage.getItem('token')
-    const savedUsername = localStorage.getItem('username')
-    
-    if (token && savedUsername) {
-      isAuthenticated.set(true)
-      username.set(savedUsername)
-    }
-  })
+onMount(() => {
+	const token = localStorage.getItem("token");
+	const savedUsername = localStorage.getItem("username");
 
-  function handleLogout() {
-    localStorage.removeItem('token')
-    localStorage.removeItem('username')
-    isAuthenticated.set(false)
-    username.set('')
-    activeTab.set('checks')
-  }
+	if (token && savedUsername) {
+		isAuthenticated.set(true);
+		username.set(savedUsername);
+	}
+});
 
-  function handleMenuSelect(tab) {
-    activeTab.set(tab)
-  }
+function handleLogout() {
+	localStorage.removeItem("token");
+	localStorage.removeItem("username");
+	isAuthenticated.set(false);
+	username.set("");
+	activeTab.set("checks");
+}
+
+function handleMenuSelect(tab) {
+	activeTab.set(tab);
+}
 </script>
 
 <div class="min-h-screen bg-gray-50">

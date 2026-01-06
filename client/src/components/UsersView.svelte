@@ -1,118 +1,118 @@
 <script>
-    import { usersApi } from "../lib/api.js";
-    import { onMount } from "svelte";
+import { onMount } from "svelte";
+import { usersApi } from "../lib/api.js";
 
-    let users = [];
-    let loading = false;
-    let dialogVisible = false;
-    let editMode = false;
-    let userForm = {
-        username: "",
-        password: "",
-        is_active: true,
-    };
+let users = [];
+let loading = false;
+let dialogVisible = false;
+let editMode = false;
+let userForm = {
+	username: "",
+	password: "",
+	is_active: true,
+};
 
-    onMount(() => {
-        loadUsers();
-    });
+onMount(() => {
+	loadUsers();
+});
 
-    async function loadUsers() {
-        loading = true;
-        try {
-            const response = await usersApi.getUsers();
-            users = response.data.data;
-        } catch (error) {
-            alert(
-                "Ошибка загрузки пользователей: " +
-                    (error.response?.data?.message || error.message),
-            );
-        } finally {
-            loading = false;
-        }
-    }
+async function loadUsers() {
+	loading = true;
+	try {
+		const response = await usersApi.getUsers();
+		users = response.data.data;
+	} catch (error) {
+		alert(
+			"Ошибка загрузки пользователей: " +
+				(error.response?.data?.message || error.message)
+		);
+	} finally {
+		loading = false;
+	}
+}
 
-    function showAddDialog() {
-        editMode = false;
-        userForm = { username: "", password: "", is_active: true };
-        dialogVisible = true;
-    }
+function showAddDialog() {
+	editMode = false;
+	userForm = { username: "", password: "", is_active: true };
+	dialogVisible = true;
+}
 
-    function editUser(user) {
-        editMode = true;
-        userForm = {
-            id: user.id,
-            username: user.username,
-            password: "",
-            is_active: user.is_active,
-        };
-        dialogVisible = true;
-    }
+function editUser(user) {
+	editMode = true;
+	userForm = {
+		id: user.id,
+		username: user.username,
+		password: "",
+		is_active: user.is_active,
+	};
+	dialogVisible = true;
+}
 
-    async function saveUser() {
-        if (!userForm.username) {
-            alert("Введите имя пользователя");
-            return;
-        }
+async function saveUser() {
+	if (!userForm.username) {
+		alert("Введите имя пользователя");
+		return;
+	}
 
-        if (!editMode && !userForm.password) {
-            alert("Введите пароль");
-            return;
-        }
+	if (!editMode && !userForm.password) {
+		alert("Введите пароль");
+		return;
+	}
 
-        try {
-            const userData = {
-                username: userForm.username,
-                is_active: userForm.is_active,
-            };
+	try {
+		const userData = {
+			username: userForm.username,
+			is_active: userForm.is_active,
+		};
 
-            if (userForm.password) {
-                userData.password = userForm.password;
-            }
+		if (userForm.password) {
+			userData.password = userForm.password;
+		}
 
-            if (editMode) {
-                await usersApi.updateUser(userForm.id, userData);
-                alert("Пользователь обновлен");
-            } else {
-                await usersApi.createUser(userData);
-                alert("Пользователь создан");
-            }
+		if (editMode) {
+			await usersApi.updateUser(userForm.id, userData);
+			alert("Пользователь обновлен");
+		} else {
+			await usersApi.createUser(userData);
+			alert("Пользователь создан");
+		}
 
-            dialogVisible = false;
-            await loadUsers();
-        } catch (error) {
-            alert("Ошибка сохранения: " + error.message);
-        }
-    }
+		dialogVisible = false;
+		await loadUsers();
+	} catch (error) {
+		alert("Ошибка сохранения: " + error.message);
+	}
+}
 
-    async function deleteUser(user) {
-        if (
-            !confirm(
-                `Вы уверены, что хотите деактивировать пользователя "${user.username}"?`,
-            )
-        ) {
-            return;
-        }
+async function deleteUser(user) {
+	if (
+		!confirm(
+			`Вы уверены, что хотите деактивировать пользователя "${user.username}"?`
+		)
+	) {
+		return;
+	}
 
-        try {
-            await usersApi.deleteUser(user.id);
-            alert("Пользователь деактивирован");
-            await loadUsers();
-        } catch (error) {
-            alert("Ошибка удаления: " + error.message);
-        }
-    }
+	try {
+		await usersApi.deleteUser(user.id);
+		alert("Пользователь деактивирован");
+		await loadUsers();
+	} catch (error) {
+		alert("Ошибка удаления: " + error.message);
+	}
+}
 
-    function formatDate(dateString) {
-        if (!dateString) return "-";
-        const date = new Date(dateString);
-        return date.toLocaleString("ru-RU", {
-            year: "numeric",
-            month: "2-digit",
-            day: "2-digit",
-            hour: "2-digit",
-            minute: "2-digit",
-        });
-    }
+function formatDate(dateString) {
+	if (!dateString) return "-";
+	const date = new Date(dateString);
+	return date.toLocaleString("ru-RU", {
+		year: "numeric",
+		month: "2-digit",
+		day: "2-digit",
+		hour: "2-digit",
+		minute: "2-digit",
+	});
+}
 </script>
 
 <div class="card">

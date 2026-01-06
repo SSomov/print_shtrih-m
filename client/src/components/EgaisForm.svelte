@@ -1,94 +1,101 @@
 <script>
-  import { egaisApi } from '../lib/api.js'
+import { egaisApi } from "../lib/api.js";
 
-  let loading = false
-  let form = {
-    num: '',
-    typedoc: 'check',
-    hall: '',
-    table: '',
-    create: new Date().toLocaleString('ru-RU'),
-    waiter: '',
-    employee_fio: '',
-    employee_inn: '',
-    employee_pos: '',
-    alldiscount: '0',
-    products: [{
-      name: '',
-      kolvo: '1',
-      price: '0',
-      GTIN: '',
-      alc_code: '',
-      qr: '',
-      egais_mark_code: '',
-      egais_id: '',
-      mark: '1'
-    }]
-  }
+let loading = false;
+let form = {
+	num: "",
+	typedoc: "check",
+	hall: "",
+	table: "",
+	create: new Date().toLocaleString("ru-RU"),
+	waiter: "",
+	employee_fio: "",
+	employee_inn: "",
+	employee_pos: "",
+	alldiscount: "0",
+	products: [
+		{
+			name: "",
+			kolvo: "1",
+			price: "0",
+			GTIN: "",
+			alc_code: "",
+			qr: "",
+			egais_mark_code: "",
+			egais_id: "",
+			mark: "1",
+		},
+	],
+};
 
-  function addProduct() {
-    form.products = [...form.products, {
-      name: '',
-      kolvo: 1,
-      price: 0,
-      GTIN: '',
-      alc_code: '',
-      qr: '',
-      egais_mark_code: '',
-      egais_id: '',
-      mark: '1'
-    }]
-  }
+function addProduct() {
+	form.products = [
+		...form.products,
+		{
+			name: "",
+			kolvo: 1,
+			price: 0,
+			GTIN: "",
+			alc_code: "",
+			qr: "",
+			egais_mark_code: "",
+			egais_id: "",
+			mark: "1",
+		},
+	];
+}
 
-  function removeProduct(index) {
-    if (form.products.length > 1) {
-      form.products = form.products.filter((_, i) => i !== index)
-    }
-  }
+function removeProduct(index) {
+	if (form.products.length > 1) {
+		form.products = form.products.filter((_, i) => i !== index);
+	}
+}
 
-  async function submitEgais() {
-    loading = true
-    try {
-      const result = await egaisApi.sendCheck(form)
-      
-      if (result.data.message) {
-        alert('ЕГАИС: ' + result.data.message)
-        resetForm()
-      } else if (result.data.error) {
-        alert('Ошибка: ' + result.data.error)
-      }
-    } catch (error) {
-      alert('Ошибка: ' + error.message)
-    } finally {
-      loading = false
-    }
-  }
+async function submitEgais() {
+	loading = true;
+	try {
+		const result = await egaisApi.sendCheck(form);
 
-  function resetForm() {
-    form = {
-      num: '',
-      typedoc: 'check',
-      hall: '',
-      table: '',
-      create: new Date().toLocaleString('ru-RU'),
-      waiter: '',
-      employee_fio: '',
-      employee_inn: '',
-      employee_pos: '',
-      alldiscount: '0',
-      products: [{
-        name: '',
-        kolvo: '1',
-        price: '0',
-        GTIN: '',
-        alc_code: '',
-        qr: '',
-        egais_mark_code: '',
-        egais_id: '',
-        mark: '1'
-      }]
-    }
-  }
+		if (result.data.message) {
+			alert("ЕГАИС: " + result.data.message);
+			resetForm();
+		} else if (result.data.error) {
+			alert("Ошибка: " + result.data.error);
+		}
+	} catch (error) {
+		alert("Ошибка: " + error.message);
+	} finally {
+		loading = false;
+	}
+}
+
+function resetForm() {
+	form = {
+		num: "",
+		typedoc: "check",
+		hall: "",
+		table: "",
+		create: new Date().toLocaleString("ru-RU"),
+		waiter: "",
+		employee_fio: "",
+		employee_inn: "",
+		employee_pos: "",
+		alldiscount: "0",
+		products: [
+			{
+				name: "",
+				kolvo: "1",
+				price: "0",
+				GTIN: "",
+				alc_code: "",
+				qr: "",
+				egais_mark_code: "",
+				egais_id: "",
+				mark: "1",
+			},
+		],
+	};
+}
 </script>
 
 <div class="card">
