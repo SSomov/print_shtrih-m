@@ -1,119 +1,119 @@
 <script>
-import { onMount } from "svelte";
-import { logsApi } from "../lib/api.js";
+    import { onMount } from "svelte";
+    import { logsApi } from "../lib/api.js";
 
-let activeTab = "checks";
-let checkLogs = [];
-let checkLoading = false;
-let checkPage = 1;
-let checkPageSize = 20;
-let checkTotal = 0;
-let checkStatus = "";
+    let activeTab = "checks";
+    let checkLogs = [];
+    let checkLoading = false;
+    let checkPage = 1;
+    let checkPageSize = 20;
+    let checkTotal = 0;
+    let checkStatus = "";
 
-let egaisLogs = [];
-let egaisLoading = false;
-let egaisPage = 1;
-let egaisPageSize = 20;
-let egaisTotal = 0;
-let egaisStatus = "";
+    let egaisLogs = [];
+    let egaisLoading = false;
+    let egaisPage = 1;
+    let egaisPageSize = 20;
+    let egaisTotal = 0;
+    let egaisStatus = "";
 
-let detailsVisible = false;
-let detailsTitle = "";
-let detailsContent = "";
+    let detailsVisible = false;
+    let detailsTitle = "";
+    let detailsContent = "";
 
-onMount(() => {
-	loadCheckLogs();
-});
+    onMount(() => {
+        loadCheckLogs();
+    });
 
-async function loadCheckLogs() {
-	checkLoading = true;
-	try {
-		const params = {
-			page: checkPage,
-			limit: checkPageSize,
-		};
-		if (checkStatus) {
-			params.status = checkStatus;
-		}
+    async function loadCheckLogs() {
+        checkLoading = true;
+        try {
+            const params = {
+                page: checkPage,
+                limit: checkPageSize,
+            };
+            if (checkStatus) {
+                params.status = checkStatus;
+            }
 
-		const result = await logsApi.getCheckLogs(params);
-		if (result.data.status === "success") {
-			checkLogs = result.data.data;
-			checkTotal = result.data.pagination.total;
-		}
-	} catch (error) {
-		alert("Ошибка: " + error.message);
-	} finally {
-		checkLoading = false;
-	}
-}
+            const result = await logsApi.getCheckLogs(params);
+            if (result.data.status === "success") {
+                checkLogs = result.data.data;
+                checkTotal = result.data.pagination.total;
+            }
+        } catch (error) {
+            alert("Ошибка: " + error.message);
+        } finally {
+            checkLoading = false;
+        }
+    }
 
-async function loadEgaisLogs() {
-	egaisLoading = true;
-	try {
-		const params = {
-			page: egaisPage,
-			limit: egaisPageSize,
-		};
-		if (egaisStatus) {
-			params.status = egaisStatus;
-		}
+    async function loadEgaisLogs() {
+        egaisLoading = true;
+        try {
+            const params = {
+                page: egaisPage,
+                limit: egaisPageSize,
+            };
+            if (egaisStatus) {
+                params.status = egaisStatus;
+            }
 
-		const result = await logsApi.getEgaisLogs(params);
-		if (result.data.status === "success") {
-			egaisLogs = result.data.data;
-			egaisTotal = result.data.pagination.total;
-		}
-	} catch (error) {
-		alert("Ошибка: " + error.message);
-	} finally {
-		egaisLoading = false;
-	}
-}
+            const result = await logsApi.getEgaisLogs(params);
+            if (result.data.status === "success") {
+                egaisLogs = result.data.data;
+                egaisTotal = result.data.pagination.total;
+            }
+        } catch (error) {
+            alert("Ошибка: " + error.message);
+        } finally {
+            egaisLoading = false;
+        }
+    }
 
-function handleTabClick(tab) {
-	activeTab = tab;
-	if (tab === "egais" && egaisLogs.length === 0) {
-		loadEgaisLogs();
-	}
-}
+    function handleTabClick(tab) {
+        activeTab = tab;
+        if (tab === "egais" && egaisLogs.length === 0) {
+            loadEgaisLogs();
+        }
+    }
 
-function viewCheckDetails(row) {
-	detailsTitle = `Детали чека #${row.id}`;
-	detailsContent = JSON.stringify(row, null, 2);
-	detailsVisible = true;
-}
+    function viewCheckDetails(row) {
+        detailsTitle = `Детали чека #${row.id}`;
+        detailsContent = JSON.stringify(row, null, 2);
+        detailsVisible = true;
+    }
 
-function viewEgaisDetails(row) {
-	detailsTitle = `Детали ЕГАИС #${row.id}`;
-	detailsContent = JSON.stringify(row, null, 2);
-	detailsVisible = true;
-}
+    function viewEgaisDetails(row) {
+        detailsTitle = `Детали ЕГАИС #${row.id}`;
+        detailsContent = JSON.stringify(row, null, 2);
+        detailsVisible = true;
+    }
 
-function refreshLogs() {
-	if (activeTab === "checks") {
-		loadCheckLogs();
-	} else {
-		loadEgaisLogs();
-	}
-}
+    function refreshLogs() {
+        if (activeTab === "checks") {
+            loadCheckLogs();
+        } else {
+            loadEgaisLogs();
+        }
+    }
 
-function formatDate(dateString) {
-	return new Date(dateString).toLocaleString("ru-RU");
-}
+    function formatDate(dateString) {
+        return new Date(dateString).toLocaleString("ru-RU");
+    }
 
-function getStatusType(status) {
-	switch (status) {
-		case "success":
-			return "bg-success-100 text-success-700";
-		case "error":
-			return "bg-danger-100 text-danger-700";
-		case "saved":
-			return "bg-warning-100 text-warning-700";
-		default:
-			return "bg-gray-100 text-gray-700";
-	}
-}
+    function getStatusType(status) {
+        switch (status) {
+            case "success":
+                return "bg-success-100 text-success-700";
+            case "error":
+                return "bg-danger-100 text-danger-700";
+            case "saved":
+                return "bg-warning-100 text-warning-700";
+            default:
+                return "bg-gray-100 text-gray-700";
+        }
+    }
 </script>
 
 <div class="card">
